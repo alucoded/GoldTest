@@ -57,8 +57,7 @@ function sendToServer(payload) {
 
 function connectWebSocket() {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-    ws = new WebSocket('ws://localhost:8080');
-    ws.onopen = () => { 
+    ws = new WebSocket('wss://your-app-name.onrender.com');    ws.onopen = () => { 
         if (playerState.uid) ws.send(JSON.stringify({ type: "AUTH", uid: playerState.uid, email: playerState.email, displayName: playerState.displayName })); 
         while(pendingPayloads.length > 0) ws.send(JSON.stringify(pendingPayloads.shift()));
     };
