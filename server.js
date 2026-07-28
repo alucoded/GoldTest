@@ -6,7 +6,8 @@ const serviceAccount = require('./serviceAccountKey.json');
 
 initializeApp({ credential: cert(serviceAccount) });
 const db = getFirestore();
-console.log("Firebase Admin Initialized Successfully.");
+console.log("-----------------------------------------");
+console.log("[SYSTEM] Firebase Admin Initialized Successfully.");
 
 const wss = new WebSocket.Server({ port: 8080 });
 const clients = new Map();
@@ -17,6 +18,7 @@ async function initializeNewPlayer(uid, email, displayName) {
     const userRef = db.collection('players').doc(uid);
     const doc = await userRef.get();
     if (!doc.exists) {
+        console.log(`[DB] Creating new player profile for UID: ${uid}`);
         const newProfile = {
             email, displayName: displayName || "New Player",
             accountGold: 10, rankXP: 20, rankTitle: "Copper",
@@ -34,12 +36,16 @@ function generateRoomCode() {
 
 wss.on('connection', (ws) => {
     let clientUid = null;
+    let clientName = "Guest";
+    console.log(`[NETWORK] New client connected. Total clients: ${clients.size + 1}`);
 
     ws.on('message', async (message) => {
         const data = JSON.parse(message);
 
         if (data.type === "AUTH") {
             clientUid = data.uid;
+            clientName = data.displayName || "Unknown User";
+            console.log(`[AUTH] User authenticated: ${clientName} (${clientUid})`);
             const profile = await initializeNewPlayer(data.uid, data.email, data.displayName);
             clients.set(ws, { uid: data.uid, profile, ws });
             ws.send(JSON.stringify({ type: "PROFILE_LOADED", profile }));
@@ -48,11 +54,13 @@ wss.on('connection', (ws) => {
         if (data.type === "JOIN_QUEUE") {
             const mode = data.mode;
             if (queues[mode]) {
+                // Remove from any other queues first
                 Object.values(queues).forEach(q => {
                     const idx = q.findIndex(c => c.ws === ws);
                     if (idx !== -1) q.splice(idx, 1);
                 });
                 queues[mode].push({ ws, uid: clientUid, profile: clients.get(ws)?.profile });
+                console.log(`[QUEUE] ${clientName} joined '${mode}' queue. Players in queue: ${queues[mode].length}`);
                 checkMatchmaking(mode);
             }
         }
@@ -60,7 +68,10 @@ wss.on('connection', (ws) => {
         if (data.type === "CANCEL_QUEUE") {
             Object.values(queues).forEach(q => {
                 const idx = q.findIndex(c => c.ws === ws);
-                if (idx !== -1) q.splice(idx, 1);
+                if (idx !== -1) {
+                    q.splice(idx, 1);
+                    console.log(`[QUEUE] ${clientName} left the queue.`);
+                }
             });
         }
 
@@ -69,15 +80,18 @@ wss.on('connection', (ws) => {
             const matchId = 'custom_' + roomCode;
             
             if (!activeMatches.has(matchId)) {
+                console.log(`[CUSTOM] ${clientName} created a new custom room. Room Code: ${roomCode}`);
                 activeMatches.set(matchId, { matchId, mode: 'custom', players: [ws], roomCode, lockedVitals: 0 });
                 ws.send(JSON.stringify({ type: "MATCH_FOUND", matchId, roomCode, mode: 'custom' }));
             } else {
                 const match = activeMatches.get(matchId);
                 if (match.players.length < 2) {
+                    console.log(`[CUSTOM] ${clientName} joined custom room: ${roomCode}`);
                     match.players.push(ws);
                     ws.send(JSON.stringify({ type: "MATCH_FOUND", matchId, roomCode, mode: 'custom' }));
                     match.players.forEach(p => p.send(JSON.stringify({ type: "OPPONENT_JOINED" })));
                 } else {
+                    console.log(`[CUSTOM] ${clientName} tried to join ${roomCode}, but it was full.`);
                     ws.send(JSON.stringify({ type: "ERROR", message: "Room is full!" }));
                 }
             }
@@ -87,8 +101,11 @@ wss.on('connection', (ws) => {
             const match = activeMatches.get(data.matchId);
             if (match) {
                 match.lockedVitals++;
+                console.log(`[MATCH] A player locked their vital in room ${match.roomCode}. Locked vitals: ${match.lockedVitals}/${match.players.length}`);
+                
                 // Once both players lock in, start the game and assign starting gold
                 if (match.lockedVitals >= 2 || match.players.length === 1) {
+                    console.log(`[MATCH] Both vitals locked in room ${match.roomCode}. Starting match!`);
                     match.players.forEach(p => {
                         const isPlayerOne = (p === match.p1);
                         p.send(JSON.stringify({ 
@@ -101,13 +118,12 @@ wss.on('connection', (ws) => {
             }
         }
 
+        // Gameplay sync actions (silenced logs to prevent spam, but left active)
         if (data.type === "SYNC_STATE") {
             const match = activeMatches.get(data.matchId);
             if (match) {
                 match.players.forEach(p => {
-                    if (p !== ws && p.readyState === WebSocket.OPEN) {
-                        p.send(JSON.stringify({ type: "SYNC_STATE", payload: data.payload }));
-                    }
+                    if (p !== ws && p.readyState === WebSocket.OPEN) p.send(JSON.stringify({ type: "SYNC_STATE", payload: data.payload }));
                 });
             }
         }
@@ -116,9 +132,7 @@ wss.on('connection', (ws) => {
             const match = activeMatches.get(data.matchId);
             if (match) {
                 match.players.forEach(p => {
-                    if (p !== ws && p.readyState === WebSocket.OPEN) {
-                        p.send(JSON.stringify({ type: "GAME_ACTION", action: data.action, payload: data.payload }));
-                    }
+                    if (p !== ws && p.readyState === WebSocket.OPEN) p.send(JSON.stringify({ type: "GAME_ACTION", action: data.action, payload: data.payload }));
                 });
             }
         }
@@ -135,6 +149,7 @@ wss.on('connection', (ws) => {
         if (data.type === "GAME_OVER") {
             const match = activeMatches.get(data.matchId);
             if (match) {
+                console.log(`[MATCH] Match ${match.roomCode} has ended.`);
                 match.players.forEach(async p => {
                     if (p.readyState === WebSocket.OPEN) {
                         const isWinner = (p !== ws);
@@ -144,6 +159,7 @@ wss.on('connection', (ws) => {
                         if (isWinner) {
                             const pData = clients.get(p);
                             if (pData && pData.uid) {
+                                console.log(`[ECONOMY] Awarding 3 Account Gold to winner: ${pData.profile.displayName}`);
                                 pData.profile.accountGold += 3;
                                 await db.collection('players').doc(pData.uid).update({ accountGold: pData.profile.accountGold });
                                 p.send(JSON.stringify({ type: "PROFILE_LOADED", profile: pData.profile }));
@@ -167,6 +183,7 @@ wss.on('connection', (ws) => {
             }
 
             if (profile.accountGold >= data.cost) {
+                console.log(`[STORE] ${clientName} purchased ${data.itemKey} for ${data.cost}G.`);
                 profile.accountGold -= data.cost;
                 if (!profile.unlockedCards.includes(data.itemKey)) profile.unlockedCards.push(data.itemKey);
                 
@@ -183,6 +200,7 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('close', () => {
+        console.log(`[NETWORK] Client disconnected: ${clientName}`);
         clients.delete(ws);
         Object.values(queues).forEach(q => {
             const idx = q.findIndex(c => c.ws === ws);
@@ -199,6 +217,8 @@ function checkMatchmaking(mode) {
             const roomCode = generateRoomCode();
             const matchId = 'match_' + roomCode;
             
+            console.log(`[MATCHMAKING] Success! Matched two players in '${mode}'. Room Code: ${roomCode}`);
+
             // Note: We now save p1 and p2 in the match state to track turn order
             activeMatches.set(matchId, { matchId, mode, players: [p1.ws, p2.ws], roomCode, lockedVitals: 0, p1: p1.ws, p2: p2.ws });
 
@@ -212,4 +232,5 @@ function checkMatchmaking(mode) {
     }
 }
 
-console.log("Goldburn Server v2.0 running on ws://localhost:8080");
+console.log("[SYSTEM] Goldburn Server v2.0 running on ws://localhost:8080");
+console.log("-----------------------------------------");
