@@ -87,8 +87,16 @@ wss.on('connection', (ws) => {
             const match = activeMatches.get(data.matchId);
             if (match) {
                 match.lockedVitals++;
+                // Once both players lock in, start the game and assign starting gold
                 if (match.lockedVitals >= 2 || match.players.length === 1) {
-                    match.players.forEach(p => p.send(JSON.stringify({ type: "START_GAME" })));
+                    match.players.forEach(p => {
+                        const isPlayerOne = (p === match.p1);
+                        p.send(JSON.stringify({ 
+                            type: "START_GAME", 
+                            startingGold: isPlayerOne ? 3 : 0, 
+                            isPlayerOne: isPlayerOne 
+                        }));
+                    });
                 }
             }
         }
@@ -190,7 +198,9 @@ function checkMatchmaking(mode) {
             const p2 = queues[mode].shift();
             const roomCode = generateRoomCode();
             const matchId = 'match_' + roomCode;
-            activeMatches.set(matchId, { matchId, mode, players: [p1.ws, p2.ws], roomCode, lockedVitals: 0 });
+            
+            // Note: We now save p1 and p2 in the match state to track turn order
+            activeMatches.set(matchId, { matchId, mode, players: [p1.ws, p2.ws], roomCode, lockedVitals: 0, p1: p1.ws, p2: p2.ws });
 
             [p1, p2].forEach(p => {
                 if (p.ws.readyState === WebSocket.OPEN) {
