@@ -10,6 +10,7 @@
     </script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <link rel="icon" type="image/png" href="GoldBurnLogo (1).png">
     <style>
         ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -25,11 +26,10 @@
         .marker-container { position: absolute; bottom: 4px; right: 4px; display: flex; gap: 3px; z-index: 10; flex-wrap: wrap; justify-content: flex-end; max-width: 50px;}
         .marker-dot { width: 16px; height: 16px; border-radius: 50%; border: 1px solid white; box-shadow: 0 0 4px black; color: white; font-size: 10px; display: flex; align-items: center; justify-content: center; font-weight: bold; text-shadow: 0 0 2px black;}
         
-        .zzz-overlay { position: absolute; top: -5px; right: -5px; font-size: 24px; font-weight: bold; color: white; text-shadow: 0 0 4px #fbbf24, 0 0 8px #d97706; z-index: 15; pointer-events: none;}
+        .zzz-overlay { position: absolute; top: -10px; right: -10px; font-weight: bold; color: white; z-index: 15; pointer-events: none;}
         .ping-line { stroke: red; stroke-width: 4; stroke-dasharray: 10; animation: dash 1s linear infinite; pointer-events: none; z-index: 50; position: absolute; top: 0; left: 0; width: 100%; height: 100%;}
         @keyframes dash { to { stroke-dashoffset: -20; } }
         
-        /* Green Move Target Highlight */
         .move-target { border-color: #22c55e !important; box-shadow: 0 0 15px rgba(34, 197, 94, 0.5) !important; cursor: pointer; }
         .move-target:hover { background-color: rgba(34, 197, 94, 0.2) !important; }
     </style>
@@ -41,7 +41,7 @@
             <img src="GoldBurnLogo (1).png" class="w-10 h-10 rounded-full border border-amber-500 object-cover">
             <div>
                 <h1 class="text-lg font-bold text-amber-400 font-serif tracking-wide">Goldburn TCG</h1>
-                <span class="text-xs text-stone-400">Server: Online v2.0</span>
+                <span class="text-xs text-stone-400">Server: Firebase Serverless</span>
             </div>
         </div>
 
@@ -67,40 +67,51 @@
             </div>
 
             <div id="tab-play" class="tab-content block flex-1 p-6 overflow-y-auto max-w-4xl mx-auto w-full space-y-4">
+                
+                <!-- NEW: ADMIN SERVER BROWSER (Hidden by default) -->
+                <div id="admin-browser" class="hidden bg-stone-900 border border-red-900 p-4 rounded-lg shadow-lg mb-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="font-bold text-red-500 text-lg">Admin Server Browser</h3>
+                        <button onclick="loadAdminBrowser()" class="bg-stone-800 hover:bg-stone-700 text-stone-200 px-3 py-1 rounded text-xs font-bold border border-stone-600">Refresh Rooms</button>
+                    </div>
+                    <div id="admin-room-list" class="space-y-2 max-h-48 overflow-y-auto pr-2"></div>
+                </div>
+
                 <h2 class="text-2xl font-bold text-amber-400 font-serif mb-2">Select Game Mode</h2>
                 
                 <div class="bg-stone-900 border border-amber-600/50 p-4 rounded-lg shadow-lg space-y-3">
                     <h3 class="font-bold text-amber-400 text-lg">Custom Match</h3>
-                    <p class="text-xs text-stone-400">Host or join a custom lobby. A 4-digit code will be generated for you to share.</p>
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <p class="text-xs text-stone-400">Host or join a custom lobby using a 4-digit code.</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                         <div>
-                            <label class="block text-stone-400 mb-1">Room Code (Leave blank to Host):</label>
-                            <input type="text" id="custom-room-code" placeholder="4-Digit Code..." class="w-full p-2 bg-stone-950 text-stone-100 border border-stone-700 rounded font-bold text-amber-400 tracking-widest text-center">
+                            <input type="text" id="custom-room-code" placeholder="Enter Code or Leave Blank to Host..." class="w-full p-2 bg-stone-950 text-stone-100 border border-stone-700 rounded font-bold text-amber-400 tracking-widest text-center">
                         </div>
-                        <div class="flex items-end">
-                            <button onclick="startCustomMatch()" class="w-full bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded transition shadow">Host / Join Room</button>
+                        <div class="flex gap-2">
+                            <button onclick="hostMatch('custom')" class="flex-1 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded transition shadow">Host</button>
+                            <button onclick="joinMatch('custom')" class="flex-1 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded transition shadow">Join Code</button>
                         </div>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div class="bg-stone-900 border border-stone-800 p-4 rounded-lg flex flex-col justify-between">
                         <div><h3 class="font-bold text-stone-200 text-lg mb-1">Quickplay</h3><p class="text-xs text-stone-400 mb-4">Random casual matchmaking.</p></div>
-                        <button onclick="toggleQueue('quickplay', this)" id="q-quickplay" class="w-full bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded text-xs transition">Play Quickplay</button>
+                        <div class="flex gap-2">
+                            <button onclick="hostMatch('quickplay')" class="flex-1 bg-stone-800 hover:bg-stone-700 text-amber-400 font-bold py-2 rounded text-xs transition border border-stone-600">Host</button>
+                            <button onclick="joinMatch('quickplay')" class="flex-1 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded text-xs transition">Join</button>
+                        </div>
                     </div>
-                    <div class="bg-stone-900 border border-stone-800 p-4 rounded-lg flex flex-col justify-between">
-                        <div><h3 class="font-bold text-stone-200 text-lg mb-1">Ranked Ladder</h3><p class="text-xs text-stone-400 mb-4">Matchmaking restricted by tier.</p></div>
-                        <button onclick="toggleQueue('ranked', this)" id="q-ranked" class="w-full bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded text-xs transition">Play Ranked</button>
+                    
+                    <div class="bg-stone-900 border border-stone-800 p-4 rounded-lg flex flex-col justify-between opacity-50 pointer-events-none">
+                        <div><h3 class="font-bold text-stone-200 text-lg mb-1">Ranked Ladder</h3><p class="text-xs text-stone-400 mb-4">Restricted by tier (In Dev).</p></div>
+                        <button class="w-full bg-stone-800 text-stone-500 font-bold py-2 rounded text-xs">Locked</button>
                     </div>
+
                     <div class="bg-stone-900 border border-stone-800 p-4 rounded-lg flex flex-col justify-between">
                         <div><h3 class="font-bold text-stone-200 text-lg mb-1">Starter Decks</h3><p class="text-xs text-stone-400 mb-4">Starter decks only.</p></div>
-                        <button onclick="toggleQueue('starters', this)" id="q-starters" class="w-full bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded text-xs transition">Play Starter Decks</button>
-                    </div>
-                    <div class="bg-stone-900 border border-stone-800 p-4 rounded-lg flex flex-col justify-between">
-                        <div><h3 class="font-bold text-stone-200 text-lg mb-1">Arena Mode</h3><p class="text-xs text-stone-400 mb-4">4-player random draft.</p></div>
                         <div class="flex gap-2">
-                            <button onclick="joinArena('dapper')" class="flex-1 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-1.5 rounded text-[10px]">Dapper (4G)</button>
-                            <button onclick="joinArena('gambler')" class="flex-1 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-1.5 rounded text-[10px]">Gambler (10G)</button>
+                            <button onclick="hostMatch('starters')" class="flex-1 bg-stone-800 hover:bg-stone-700 text-amber-400 font-bold py-2 rounded text-xs transition border border-stone-600">Host</button>
+                            <button onclick="joinMatch('starters')" class="flex-1 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded text-xs transition">Join</button>
                         </div>
                     </div>
                 </div>
@@ -132,7 +143,7 @@
                             </div>
                             <div class="flex gap-2 relative">
                                 <button onclick="toggleSubtypeDropdown()" type="button" class="flex-1 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded text-left flex justify-between items-center text-xs">
-                                    <span id="subtype-dropdown-label">Types & Subtypes (All)</span><span class="text-amber-400">笆ｼ</span>
+                                    <span id="subtype-dropdown-label">Types & Subtypes (All)</span><span class="text-amber-400">V</span>
                                 </button>
                                 <select id="filter-speed" class="w-1/4 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded" onchange="filterCollection()">
                                     <option value="all">All Speeds</option><option value="Fast">Fast Act</option><option value="Slow">Slow Act</option>
@@ -401,12 +412,12 @@
                 </div>
                 
                 <div class="grid grid-cols-2 gap-2 mt-2">
-                    <button onclick="startTargeting()" class="bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-1.5 rounded text-xs transition shadow">識 Target Arrow</button>
-                    <button onclick="startMoving()" class="bg-blue-600 hover:bg-blue-500 text-stone-100 font-bold py-1.5 rounded text-xs transition shadow">純 Move</button>
+                    <button onclick="startTargeting()" class="bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-1.5 rounded text-xs transition shadow">Target</button>
+                    <button onclick="startMoving()" class="bg-blue-600 hover:bg-blue-500 text-stone-100 font-bold py-1.5 rounded text-xs transition shadow">Move</button>
                 </div>
                 <div class="grid grid-cols-2 gap-2 mt-1">
-                    <button onclick="sendToZone('gy')" class="bg-stone-950 hover:bg-stone-800 text-stone-400 font-bold py-1.5 rounded text-xs border border-stone-800 transition">逐 To GY</button>
-                    <button onclick="sendToZone('void')" class="bg-stone-950 hover:bg-stone-800 text-purple-400 font-bold py-1.5 rounded text-xs border border-purple-900/50 transition">血 To Void</button>
+                    <button onclick="sendToZone('gy')" class="bg-stone-950 hover:bg-stone-800 text-stone-400 font-bold py-1.5 rounded text-xs border border-stone-800 transition">To GY</button>
+                    <button onclick="sendToZone('void')" class="bg-stone-950 hover:bg-stone-800 text-purple-400 font-bold py-1.5 rounded text-xs border border-purple-900/50 transition">To Void</button>
                 </div>
             </div>
             
