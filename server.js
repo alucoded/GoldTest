@@ -233,5 +233,5 @@ function checkMatchmaking(mode) {
     }
 }
 
-console.log("[SYSTEM] Goldburn Server v2.0 running on ws://localhost:8080");
+console.log(`[SYSTEM] Goldburn Server v2.0 running on port ${PORT}`);
 console.log("-----------------------------------------");
