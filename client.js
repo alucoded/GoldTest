@@ -17,7 +17,6 @@ let playerState = {
     tempSessionId: "guest_" + Math.random().toString(36).substr(2, 9)
 };
 
-// Helper to get an ID whether linked or guest
 function getPlayerId() {
     return playerState.uid || playerState.tempSessionId;
 }
@@ -137,13 +136,12 @@ async function loadAdminBrowser() {
 async function adminForceJoin(roomId, mode) {
     currentRoomId = roomId;
     gameState.isHost = false;
-    await db.collection('rooms').doc(roomId).update({ guestUid: getPlayerId(), guestName: playerState.displayName });
+    await db.collection('rooms').doc(roomId).update({ guestUid: getPlayerId(), guestName: playerState.displayName, status: 'PLAYING' });
     listenToRoom();
     showVitalLobby(mode);
 }
 
 async function hostMatch(mode) {
-    // Restricted to Custom unless linked
     if(!playerState.uid && mode !== 'custom') return alert("You must link an account to play online matchmaking!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("You must equip a Vital card in the Forge first!");
     
@@ -164,7 +162,6 @@ async function hostMatch(mode) {
 }
 
 async function joinMatch(mode) {
-    // Restricted to Custom unless linked
     if(!playerState.uid && mode !== 'custom') return alert("You must link an account to play online matchmaking!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("You must equip a Vital card in the Forge first!");
     
@@ -183,8 +180,9 @@ async function joinMatch(mode) {
     gameState.roomCode = roomDoc.data().roomCode;
     gameState.isHost = false;
     
+    // BUG FIX 1: Set room to PLAYING so nobody else can join it and it leaves the queue
     await db.collection('rooms').doc(currentRoomId).update({
-        guestUid: getPlayerId(), guestName: playerState.displayName
+        guestUid: getPlayerId(), guestName: playerState.displayName, status: 'PLAYING'
     });
     
     listenToRoom();
@@ -198,18 +196,15 @@ function listenToRoom() {
         if(!doc.exists) return;
         const data = doc.data();
         
-        // Lobby State: Opponent Joins
         if(gameState.isHost && data.guestUid && gameState.phase === 'LOBBY') {
             const ls = document.getElementById('lobby-status');
             if(ls) { ls.textContent = "Opponent connected! Prepare for match."; ls.classList.replace('text-stone-400', 'text-emerald-400'); }
         }
         
-        // Lobby State: Both Locked In
         if(data.lockedVitals >= 2 && gameState.phase === 'LOBBY') {
             enterMatch(gameState.isHost ? 3 : 0, gameState.isHost);
         }
         
-        // Playing State: Sync Board
         if (gameState.phase === 'PLAYING') {
             const oppState = gameState.isHost ? data.p2State : data.p1State;
             if (oppState) {
@@ -219,16 +214,16 @@ function listenToRoom() {
                 gameState.board.oppVoid = oppState.void; 
                 gameState.board.oppDeckCount = oppState.deckCount;
                 gameState.board.oppGold = oppState.gold !== undefined ? oppState.gold : 0;
+                
+                // BUG FIX 2 (Part A): Center slots now strictly map over exactly what the opponent provides, allowing "null" (empty slots) to sync.
                 if (oppState.center) {
-                    if (oppState.center[2] !== null) gameState.board.center[0] = oppState.center[2];
-                    if (oppState.center[0] !== null) gameState.board.center[2] = oppState.center[0];
-                    if (oppState.center[1] !== null) gameState.board.center[1] = oppState.center[1];
+                    gameState.board.center[0] = oppState.center[2]; 
+                    gameState.board.center[1] = oppState.center[1]; 
                 }
                 renderVTT();
             }
         }
         
-        // Playing State: Sync Chat
         if(data.chat && data.chat.length > lastChatCount) {
             const newChats = data.chat.slice(lastChatCount);
             const chatBox = document.getElementById('chat-log');
@@ -240,7 +235,6 @@ function listenToRoom() {
             lastChatCount = data.chat.length;
         }
         
-        // Playing State: Sync Logs
         if(data.logs && data.logs.length > lastLogCount) {
             const newLogs = data.logs.slice(lastLogCount);
             const logBox = document.getElementById('action-log');
@@ -251,7 +245,6 @@ function listenToRoom() {
             lastLogCount = data.logs.length;
         }
         
-        // Game Over Detection & Rewards
         if(data.status === 'FINISHED' && gameState.phase === 'PLAYING') {
             if(data.loserUid === getPlayerId()) {
                 alert("DEFEATED! You have lost the match.");
@@ -272,12 +265,17 @@ function listenToRoom() {
 
 function broadcastState() {
     if (currentRoomId === "SANDBOX" || !currentRoomId) return;
-    const payload = {
+    
+    const rawPayload = {
         front: gameState.board.playerFront, back: gameState.board.playerBack, center: gameState.board.center,
         gy: gameState.board.gy, void: gameState.board.void, deckCount: gameState.deck.length, gold: gameState.gold
     };
+    
+    // BUG FIX 2 (Part B): This stringify/parse combo strips ALL "undefined" values from your cards so Firebase stops silently crashing on updates.
+    const payload = JSON.parse(JSON.stringify(rawPayload));
+    
     const updateField = gameState.isHost ? 'p1State' : 'p2State';
-    db.collection('rooms').doc(currentRoomId).update({ [updateField]: payload });
+    db.collection('rooms').doc(currentRoomId).update({ [updateField]: payload }).catch(err => console.error("Sync Error: ", err));
 }
 
 // --- GAMEPLAY ENGINE ---
@@ -875,6 +873,11 @@ function leaveMatch() {
 }
 
 function executeLeaveMatch() {
+    // BUG FIX 1 (Cleanup): Close the room properly when a player leaves.
+    if (currentRoomId && currentRoomId !== "SANDBOX") {
+        db.collection('rooms').doc(currentRoomId).update({ status: 'CLOSED' }).catch(() => {});
+    }
+    
     gameState.phase = 'LOBBY';
     if(roomUnsubscribe) { roomUnsubscribe(); roomUnsubscribe = null; }
     currentRoomId = null;
