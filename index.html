@@ -2,71 +2,271 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Card Game</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Card Game - Full Implementation</title>
     <style>
-        /* Basic styling for visualization */
-        .drop-zone { width: 100px; height: 140px; border: 2px dashed #ccc; margin: 10px; display: inline-block; }
-        .card { width: 90px; height: 130px; background: #eee; border: 1px solid #333; cursor: grab; padding: 5px; }
-        .hidden { display: none !important; }
-        .admin-panel { border: 2px solid red; padding: 15px; margin-top: 20px; background: #fee; }
+        /* --- General Layout --- */
+        body { 
+            font-family: sans-serif; 
+            background: #222; 
+            color: #fff; 
+            margin: 0; 
+            padding: 20px; 
+        }
+        
+        /* --- Feature 6: Profile & Auth Layout --- */
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            background: #333; 
+            padding: 10px 20px; 
+            border-radius: 8px; 
+        }
+        .profile { 
+            display: flex; 
+            align-items: center; 
+            gap: 15px; 
+        }
+        .profile img { 
+            width: 50px; 
+            height: 50px; 
+            border-radius: 50%; 
+            border: 2px solid #aaa; 
+            object-fit: cover;
+        }
+        
+        /* --- Feature 4 & 5: Lobby Layout --- */
+        .lobby-box { 
+            background: #444; 
+            padding: 20px; 
+            text-align: center; 
+            border-radius: 8px; 
+            margin: 20px 0; 
+        }
+        button { 
+            padding: 10px 20px; 
+            font-size: 16px; 
+            cursor: pointer; 
+            border-radius: 5px; 
+            border: none; 
+            margin: 5px;
+        }
+        button:disabled { 
+            background: #555; 
+            color: #888; 
+            cursor: not-allowed; 
+        }
+        button.ready { 
+            background: #4CAF50; 
+            color: white; 
+        }
+
+        /* --- Feature 2 & 3: Game Board & Drag-Drop Layout --- */
+        .board { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 20px; 
+            margin-top: 20px; 
+            position: relative; 
+        }
+        .zone-container { 
+            display: flex; 
+            gap: 15px; 
+            background: #333; 
+            padding: 15px; 
+            border-radius: 8px; 
+            min-height: 160px; 
+        }
+        .drop-zone { 
+            width: 100px; 
+            height: 140px; 
+            border: 2px dashed #666; 
+            border-radius: 5px; 
+            position: relative; 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        /* Visual labels for the empty drop zones */
+        .drop-zone::after { 
+            content: attr(data-slot-type); 
+            position: absolute; 
+            bottom: 5px; 
+            width: 100%; 
+            text-align: center; 
+            color: #666; 
+            font-size: 12px; 
+            pointer-events: none; 
+        }
+        
+        /* --- Card Layout --- */
+        .card { 
+            width: 96px; 
+            height: 136px; 
+            background: #e2e2e2; 
+            color: #000; 
+            border-radius: 4px; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            cursor: grab; 
+            position: relative; 
+            z-index: 10; 
+            margin: 2px; 
+            text-align: center; 
+            font-weight: bold; 
+        }
+        .card:active { 
+            cursor: grabbing; 
+        }
+        .card .btn-target { 
+            margin-top: 10px; 
+            font-size: 10px; 
+            padding: 4px; 
+            cursor: crosshair; 
+        }
+
+        /* --- Feature 1: Targeting Arrow SVG Overlay --- */
+        #arrow-svg { 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100vw; 
+            height: 100vh; 
+            pointer-events: none; 
+            z-index: 9999; 
+        }
+        .arrow-line { 
+            stroke: red; 
+            stroke-width: 4; 
+            stroke-dasharray: 10, 5; 
+            fill: none; 
+        }
+        .ghost-arrow { 
+            stroke: rgba(255, 0, 0, 0.4); 
+        }
+
+        /* --- Feature 7: Admin Panel Layout --- */
+        .admin-panel { 
+            background: #500; 
+            border: 2px solid red; 
+            padding: 20px; 
+            border-radius: 8px; 
+            margin-top: 30px; 
+        }
+        .hidden { 
+            display: none !important; 
+        }
+        input { 
+            padding: 8px; 
+            margin-right: 10px; 
+            border-radius: 4px;
+            border: none;
+        }
     </style>
 </head>
 <body>
 
-    <!-- USER PROFILE SECTION -->
-    <div id="user-profile">
-        <!-- Default avatar until Google Auth loads -->
-        <img id="player-pfp" src="assets/default-avatar.png" alt="Profile" style="width: 50px; height: 50px; border-radius: 50%;">
-        <span id="player-name">Loading...</span>
-        <span id="player-rank">Rank: Bronze</span>
+    <!-- ==========================================
+         FEATURE 6: HEADER & GOOGLE PROFILE UI
+    =========================================== -->
+    <div class="header">
+        <div class="profile">
+            <!-- This image src will be replaced dynamically in client.js -->
+            <img id="player-pfp" src="assets/default-avatar.png" alt="Profile">
+            <div>
+                <div id="player-name">Guest Player</div>
+                <div id="player-rank">Rank: Unranked</div>
+            </div>
+        </div>
+        <button id="login-btn" onclick="mockGoogleLogin()">Simulate Google Login</button>
     </div>
 
-    <!-- LOBBY SECTION -->
-    <div id="lobby-container">
-        <h2 id="lobby-title">Lobby</h2>
+    <!-- ==========================================
+         FEATURE 4 & 5: LOBBY UI
+    =========================================== -->
+    <div class="lobby-box">
+        <h2 id="lobby-title">Main Menu</h2>
         
-        <!-- Button starts disabled so users cannot force a ghost match -->
+        <!-- Setup buttons to test the text changes -->
+        <button onclick="joinLobby('quickplay')">Join Quickplay</button>
+        <button onclick="joinLobby('private', 'ABCD')">Join Room ABCD</button>
+        
+        <br><br>
+        
+        <!-- Disabled by default to prevent the "Ghost Opponent" bug -->
         <button id="match-status-btn" disabled>Waiting for opponent...</button>
     </div>
 
-    <!-- GAME BOARD SECTION -->
-    <div id="game-board">
+    <!-- ==========================================
+         FEATURE 2 & 3: GAME BOARD & DRAG-DROP UI
+    =========================================== -->
+    <div id="game-board" class="board hidden">
+        
         <h3>Act Slots</h3>
-        <!-- data-slot-type is strictly checked in the drag-and-drop logic -->
-        <div class="drop-zone act-slot" ondragover="onDragOver(event)" ondrop="onCardDrop(event)" data-slot-type="ActSlot"></div>
-        <div class="drop-zone act-slot" ondragover="onDragOver(event)" ondrop="onCardDrop(event)" data-slot-type="ActSlot"></div>
+        <div class="zone-container">
+            <!-- data-slot-type is strictly checked in client.js -->
+            <div class="drop-zone" ondragover="onDragOver(event)" ondrop="onCardDrop(event)" data-slot-type="ActSlot"></div>
+            <div class="drop-zone" ondragover="onDragOver(event)" ondrop="onCardDrop(event)" data-slot-type="ActSlot"></div>
+        </div>
         
         <h3>Graveyard</h3>
-        <div class="drop-zone graveyard" ondragover="onDragOver(event)" ondrop="onCardDrop(event)" data-slot-type="Graveyard"></div>
+        <div class="zone-container">
+            <div class="drop-zone" ondragover="onDragOver(event)" ondrop="onCardDrop(event)" data-slot-type="Graveyard"></div>
+        </div>
 
         <h3>Your Hand</h3>
-        <div class="drop-zone hand" data-slot-type="Hand">
-            <!-- Example Act Card -->
-            <div class="card" draggable="true" ondragstart="onCardDragStart(event)" id="card-1" data-type="Act" data-current-slot="Hand">
-                Vital Strike (Act)
+        <div class="zone-container">
+            <!-- The Hand acts as a starting slot -->
+            <div class="drop-zone hand" data-slot-type="Hand" style="border-color: #4CAF50; width: 100%; justify-content: flex-start;">
+                
+                <!-- Example Act Card: Note the data-type and data-current-slot attributes -->
+                <div class="card" draggable="true" ondragstart="onCardDragStart(event)" id="card-vital" data-type="Act" data-current-slot="Hand">
+                    Vital Strike (Act)
+                    
+                    <!-- Button to trigger the target arrow -->
+                    <button class="btn-target" onmousedown="startTargeting(event, 'card-vital')">🎯 Aim</button>
+                </div>
+
             </div>
         </div>
     </div>
 
-    <!-- ADMIN TOOLS SECTION -->
+    <!-- ==========================================
+         FEATURE 7: ADMIN CONTROLS UI
+    =========================================== -->
+    <!-- Hidden by default. client.js removes 'hidden' class if isAdmin === true -->
     <div id="admin-panel" class="admin-panel hidden">
-        <h3 style="color: red; margin-top: 0;">Admin Debug Tools</h3>
+        <h3 style="margin-top: 0; color: #ffcccc;">Admin Debug Tools</h3>
         
-        <label>Target User ID:</label>
-        <input type="text" id="admin-target-uid" placeholder="Enter User UID">
+        <input type="text" id="admin-uid" placeholder="Target User UID">
         
-        <div style="margin-top: 10px;">
-            <input type="number" id="admin-gold-amount" placeholder="Gold Amount">
-            <button onclick="adminSetGold()">Set Gold</button>
+        <div style="margin-top: 15px;">
+            <input type="number" id="admin-gold" placeholder="Gold Amount">
+            <button onclick="adminEditGold()">Set Account Gold</button>
         </div>
         
-        <div style="margin-top: 10px;">
-            <input type="text" id="admin-item-id" placeholder="Item ID to Delete">
+        <div style="margin-top: 15px;">
+            <input type="text" id="admin-item" placeholder="Item/Card ID">
             <button onclick="adminDeleteUnlock()">Delete Unlock</button>
         </div>
     </div>
 
-    <!-- Your Firebase and script tags would go here -->
+    <!-- ==========================================
+         FEATURE 1: TARGETING ARROW SVG CANVAS
+    =========================================== -->
+    <!-- Fixed over the entire screen to draw arrows between any two points -->
+    <svg id="arrow-svg">
+        <!-- The user's local arrow -->
+        <path id="local-arrow" class="arrow-line hidden" d=""></path>
+        
+        <!-- The simulated arrow from the opponent over the network -->
+        <path id="opponent-arrow" class="arrow-line ghost-arrow hidden" d=""></path>
+    </svg>
+
+    <!-- Main Logic Script -->
     <script src="client.js"></script>
 </body>
 </html>
