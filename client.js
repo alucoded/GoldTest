@@ -75,10 +75,12 @@ function connectWebSocket() {
             showVitalLobby(data.mode);
         } else if (data.type === "OPPONENT_JOINED") {
             const ls = document.getElementById('lobby-status');
-            ls.textContent = "Opponent connected! Select a slot and Lock in your Vital.";
-            ls.classList.replace('text-stone-400', 'text-emerald-400');
+            if(ls) {
+                ls.textContent = "Opponent connected! Prepare for match.";
+                ls.classList.replace('text-stone-400', 'text-emerald-400');
+            }
         } else if (data.type === "START_GAME") {
-            enterMatch();
+            enterMatch(data.startingGold, data.isPlayerOne);
         } else if (data.type === "SYNC_STATE") {
             const p = data.payload;
             gameState.board.oppFront = p.front; gameState.board.oppBack = p.back;
@@ -99,9 +101,9 @@ function connectWebSocket() {
             chat.scrollTop = chat.scrollHeight;
         } else if (data.type === "MATCH_END") {
             if (data.isWinner) {
-                alert("🏆 YOU WIN! Your opponent was defeated or surrendered. You earned 3 Gold.");
+                alert("醇 YOU WIN! Your opponent was defeated or surrendered. You earned 3 Gold.");
             } else {
-                alert("💀 YOU LOST! You have been defeated.");
+                alert("逐 YOU LOST! You have been defeated.");
             }
             executeLeaveMatch();
         } else if (data.type === "ERROR") alert(data.message);
@@ -144,7 +146,10 @@ function toggleQueue(mode, btn) {
         btn.textContent = "Cancel Search";
         btn.classList.replace('bg-amber-600', 'bg-red-700');
         
-        if(!playerState.currentVital) { resetQueueButtons(); return alert("You must equip a Vital card in the Forge first!"); }
+        if(mode !== 'starters' && !playerState.currentVital) { 
+            resetQueueButtons(); 
+            return alert("You must equip a Vital card in the Forge first!"); 
+        }
         sendToServer({ type: "JOIN_QUEUE", mode, uid: playerState.uid });
     }
 }
@@ -179,30 +184,72 @@ function testDeckInSandbox() {
     showVitalLobby("sandbox");
 }
 
+// Helper to parse the current deck into the match state
+function loadDeckIntoGameState(deckToLoad = playerState.currentDeck, vitalToLoad = playerState.currentVital) {
+    gameState.deck = [];
+    for (const [id, count] of Object.entries(deckToLoad)) {
+        const card = MASTER_CARDS.find(c => c.id === id);
+        if(card) {
+            for (let i=0; i<count; i++) gameState.deck.push({...card, instanceId: Math.random().toString(36).substr(2, 9), currentHp: card.hp, markers: {}, exhausted: false});
+        }
+    }
+    const vCard = MASTER_CARDS.find(c => c.id === vitalToLoad);
+    if (vCard) gameState.deck.push({...vCard, instanceId: Math.random().toString(36).substr(2, 9), currentHp: vCard.hp, markers: {}, exhausted: false});
+}
+
+// Fired when the player confirms their starter deck choice in the lobby
+function confirmLobbyStarter() {
+    const val = document.getElementById('lobby-starter-select').value;
+    if (!val) return alert("Please select a deck first.");
+    
+    let tempVital = null;
+    let tempDeck = {};
+    for (const [id, count] of Object.entries(STARTER_DECKS[val])) {
+        const card = MASTER_CARDS.find(c => c.id === id);
+        if (card && card.type === 'Vital') tempVital = id;
+        else tempDeck[id] = count;
+    }
+    
+    // Set up the state using the chosen starter deck temporarily without overwriting their custom deck
+    playerState.currentVital = tempVital; 
+    loadDeckIntoGameState(tempDeck, tempVital);
+    
+    document.getElementById('starter-deck-selection').classList.add('hidden');
+    document.getElementById('vital-selection-area').classList.remove('hidden');
+}
+
 function showVitalLobby(mode) {
     document.getElementById('lobby-view').classList.add('hidden');
     document.getElementById('vital-lobby-view').classList.remove('hidden');
     
-    if(mode === 'sandbox') {
+    const vitalArea = document.getElementById('vital-selection-area');
+    const starterArea = document.getElementById('starter-deck-selection');
+    
+    // Reset displays
+    vitalArea.classList.add('hidden');
+    starterArea.classList.add('hidden');
+
+    if (mode === 'sandbox') {
         document.getElementById('lobby-room-code-container').classList.add('hidden');
         document.getElementById('lobby-status').textContent = "Sandbox Mode Active. Select a slot for your Vital.";
         document.getElementById('lobby-status').classList.replace('text-stone-400', 'text-emerald-400');
+        vitalArea.classList.remove('hidden');
+        loadDeckIntoGameState();
+    } else if (mode === 'starters') {
+        document.getElementById('lobby-room-code-container').classList.remove('hidden');
+        document.getElementById('lobby-room-code').textContent = gameState.roomCode;
+        document.getElementById('lobby-status').textContent = "Opponent found! Choose your Starter Deck.";
+        starterArea.classList.remove('hidden'); // Show dropdown instead of vital grid
     } else {
         document.getElementById('lobby-room-code-container').classList.remove('hidden');
         document.getElementById('lobby-room-code').textContent = gameState.roomCode;
         document.getElementById('lobby-status').textContent = "Waiting for opponent to connect...";
         document.getElementById('lobby-status').classList.replace('text-emerald-400', 'text-stone-400');
+        vitalArea.classList.remove('hidden');
+        loadDeckIntoGameState();
     }
-    document.getElementById('vital-selection-area').classList.remove('hidden');
 
-    gameState.deck = [];
-    for (const [id, count] of Object.entries(playerState.currentDeck)) {
-        const card = MASTER_CARDS.find(c => c.id === id);
-        for (let i=0; i<count; i++) gameState.deck.push({...card, instanceId: Math.random().toString(36).substr(2, 9), currentHp: card.hp, markers: {}, exhausted: false});
-    }
-    const vCard = MASTER_CARDS.find(c => c.id === playerState.currentVital);
-    if (vCard) gameState.deck.push({...vCard, instanceId: Math.random().toString(36).substr(2, 9), currentHp: vCard.hp, markers: {}, exhausted: false});
-
+    // Reset Vital Buttons
     document.querySelectorAll('.vital-btn').forEach(btn => {
         btn.classList.remove('border-amber-400');
         btn.innerHTML = btn.id.includes('Front') ? 'F'+(parseInt(btn.id.split('-')[2])+1) : 'B'+(parseInt(btn.id.split('-')[2])+1);
@@ -242,19 +289,19 @@ function lockInVital() {
     }
     
     if (gameState.matchId === "SANDBOX") {
-        enterMatch();
+        enterMatch(3, true);
     } else {
         document.getElementById('btn-lock-in-vital').textContent = "Waiting for Opponent...";
         sendToServer({ type: "VITAL_LOCKED", matchId: gameState.matchId });
     }
 }
 
-function enterMatch() {
+function enterMatch(startingGold = 3, isPlayerOne = true) {
     document.getElementById('vital-lobby-view').classList.add('hidden');
     document.getElementById('game-view').classList.remove('hidden');
     
     gameState.phase = 'PLAYING';
-    gameState.gold = 3;
+    gameState.gold = startingGold;
     
     gameState.deck.sort(() => Math.random() - 0.5);
     gameState.hand = gameState.deck.splice(0, 5); 
@@ -262,7 +309,9 @@ function enterMatch() {
     document.getElementById('match-gold-val').textContent = gameState.gold;
     document.getElementById('action-log').innerHTML = ''; 
     document.getElementById('chat-log').innerHTML = '';
-    logAction("Match started. Vital deployed. Drew 5 cards.", true); // local log only
+    
+    const turnText = gameState.matchId === "SANDBOX" ? "" : (isPlayerOne ? "You go first!" : "Opponent goes first!");
+    logAction(`Match started. Vital deployed. Drew 5 cards. ${turnText}`, true);
     
     startMatchTimer();
     renderVTT();
@@ -322,7 +371,7 @@ function renderVTT() {
     
     // Opponent Gold Sync
     const oppGoldEl = document.getElementById('opp-gold-val');
-    if(oppGoldEl) oppGoldEl.textContent = gameState.board.oppGold || 3;
+    if(oppGoldEl) oppGoldEl.textContent = gameState.board.oppGold || 0;
 
     // Render Hand
     const handEl = document.getElementById('player-hand-container');
@@ -358,14 +407,14 @@ function renderVTT() {
                 const isTargeted = activeInsSlot && activeInsSlot.region === region && activeInsSlot.index === idx;
                 const isMenuOpen = activeBoardMenuSlot && activeBoardMenuSlot.region === region && activeBoardMenuSlot.index === idx;
                 const exhaustedStyle = card.exhausted ? 'opacity-50 grayscale-[80%]' : '';
-                const zzzOverlay = card.exhausted ? `<div class="zzz-overlay">💤</div>` : '';
+                const zzzOverlay = card.exhausted ? `<div class="zzz-overlay">彫</div>` : '';
                 
                 // On-Card Menu Overlay
                 const menuOverlay = isMenuOpen && !isOpp ? `
                     <div class="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-1 z-20 rounded p-1">
-                        <button onclick="event.stopPropagation(); startTargeting()" class="bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold px-2 py-1.5 rounded text-[9px] w-full shadow">🎯 Target</button>
-                        <button onclick="event.stopPropagation(); startMoving()" class="bg-blue-600 hover:bg-blue-500 text-stone-100 font-bold px-2 py-1.5 rounded text-[9px] w-full shadow">🏃 Move</button>
-                        <button onclick="event.stopPropagation(); sendToZone('gy')" class="bg-stone-800 hover:bg-stone-700 text-stone-300 font-bold px-2 py-1.5 rounded text-[9px] w-full border border-stone-600">💀 To GY</button>
+                        <button onclick="event.stopPropagation(); startTargeting()" class="bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold px-2 py-1.5 rounded text-[9px] w-full shadow">識 Target</button>
+                        <button onclick="event.stopPropagation(); startMoving()" class="bg-blue-600 hover:bg-blue-500 text-stone-100 font-bold px-2 py-1.5 rounded text-[9px] w-full shadow">純 Move</button>
+                        <button onclick="event.stopPropagation(); sendToZone('gy')" class="bg-stone-800 hover:bg-stone-700 text-stone-300 font-bold px-2 py-1.5 rounded text-[9px] w-full border border-stone-600">逐 To GY</button>
                     </div>` : '';
 
                 slot.className = `board-slot bg-stone-900 border-2 ${isTargeted ? 'border-amber-400 ring-2 ring-amber-500 shadow-xl scale-[1.02] z-10' : (isOpp?'border-red-900/50':'border-amber-600/50')} rounded flex items-center justify-center shadow-lg overflow-hidden cursor-pointer`;
@@ -732,6 +781,7 @@ function executeLeaveMatch() {
     document.getElementById('vital-lobby-view').classList.add('hidden');
     document.getElementById('lobby-view').classList.remove('hidden');
     inspectEmpty();
+    loadLocalDeck(); // Reset to custom deck if starter deck was selected
 }
 
 // --- FULL DECK MANAGER & FORGE FILTERS ---
@@ -819,7 +869,7 @@ function filterCollection() {
         el.innerHTML = `
             <div class="flex justify-between items-center mb-1">
                 <span class="text-amber-400 font-bold truncate text-sm flex-1">${card.name}</span>
-                <button onclick="showCardDetails('${card.id}')" class="bg-stone-800 text-stone-300 hover:text-amber-400 px-1.5 py-0.5 rounded text-[10px] ml-1 shadow">🔍</button>
+                <button onclick="showCardDetails('${card.id}')" class="bg-stone-800 text-stone-300 hover:text-amber-400 px-1.5 py-0.5 rounded text-[10px] ml-1 shadow">剥</button>
             </div>
             <div class="flex-1 overflow-hidden bg-stone-900 rounded flex items-center justify-center p-1 border border-stone-800 cursor-pointer" onclick="addCardToDeck('${card.id}')">
                 <img src="${card.image}" class="h-full w-full object-contain" onerror="this.src='GoldBurnLogo (1).png'">
