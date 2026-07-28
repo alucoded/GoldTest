@@ -1034,7 +1034,19 @@ function renderStoreAndInventory() {
             store.appendChild(el);
         }
     });
-
+    
+    function resetQueueButtons() {
+        const displayNames = { quickplay: 'Quickplay', ranked: 'Ranked', starters: 'Starter Decks' };
+        ['quickplay', 'ranked', 'starters'].forEach(m => {
+            const b = document.getElementById(`q-${m}`);
+            if(b) { 
+                b.textContent = `Play ${displayNames[m]}`; 
+                b.classList.replace('bg-red-700', 'bg-amber-600'); 
+            }
+        });
+        activeQueueMode = null;
+    }
+    
     if (playerState.unlockedCards.length === 0) inv.innerHTML = `<p class="text-xs text-stone-500 col-span-full">No items unlocked yet.</p>`;
     playerState.unlockedCards.forEach(item => {
         const el = document.createElement('div');
