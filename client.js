@@ -13,8 +13,14 @@ const db = firebase.firestore();
 
 let playerState = { 
     uid: null, email: null, displayName: "Guest Player", accountGold: 10, 
-    unlockedCards: [], customDecks: {}, activeDeckName: "Custom Deck", currentDeck: {}, currentVital: null
+    unlockedCards: [], customDecks: {}, activeDeckName: "Custom Deck", currentDeck: {}, currentVital: null,
+    tempSessionId: "guest_" + Math.random().toString(36).substr(2, 9)
 };
+
+// Helper to get an ID whether linked or guest
+function getPlayerId() {
+    return playerState.uid || playerState.tempSessionId;
+}
 
 // --- VTT GAME STATE ---
 let currentRoomId = null;
@@ -58,22 +64,24 @@ auth.onAuthStateChanged(async (user) => {
         document.getElementById('profile-name').textContent = user.displayName;
         document.getElementById('auth-btn').textContent = "Sign Out";
         
-        // Fetch or create profile directly in Firestore
-        const userRef = db.collection('players').doc(user.uid);
-        const doc = await userRef.get();
-        if(!doc.exists) {
-            const newProfile = { email: user.email, displayName: user.displayName, accountGold: 10, unlockedCards: [] };
-            await userRef.set(newProfile);
-            playerState.accountGold = 10;
-            playerState.unlockedCards = [];
-        } else {
-            const data = doc.data();
-            playerState.accountGold = data.accountGold || 10;
-            playerState.unlockedCards = data.unlockedCards || [];
+        try {
+            const userRef = db.collection('players').doc(user.uid);
+            const doc = await userRef.get();
+            if(!doc.exists) {
+                const newProfile = { email: user.email, displayName: user.displayName, accountGold: 10, unlockedCards: [] };
+                await userRef.set(newProfile, { merge: true });
+                playerState.accountGold = 10;
+                playerState.unlockedCards = [];
+            } else {
+                const data = doc.data();
+                playerState.accountGold = data.accountGold || 10;
+                playerState.unlockedCards = data.unlockedCards || [];
+            }
+            updateUI(); filterCollection(); renderStoreAndInventory();
+            checkAdmin();
+        } catch (error) {
+            console.error("Firestore Error Loading Account: ", error);
         }
-        
-        updateUI(); filterCollection(); renderStoreAndInventory();
-        checkAdmin();
     } else {
         playerState.unlockedCards = ['Bandits Arrival Starter'];
         filterCollection(); renderStoreAndInventory(); renderDeckList();
@@ -82,8 +90,14 @@ auth.onAuthStateChanged(async (user) => {
 
 function toggleAuth() {
     if (currentRoomId && currentRoomId !== "SANDBOX") return alert("Cannot sign out in a match!");
-    if (playerState.uid) auth.signOut().then(() => window.location.reload());
-    else auth.signInWithRedirect(new firebase.auth.GoogleAuthProvider());
+    if (playerState.uid) {
+        auth.signOut().then(() => window.location.reload());
+    } else {
+        auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch((error) => {
+            console.error("Popup Error:", error);
+            alert("Login popup was blocked or closed. Please try again.");
+        });
+    }
 }
 
 function switchTab(tabId) {
@@ -95,7 +109,6 @@ function switchTab(tabId) {
 // --- ADMIN & FIREBASE MATCHMAKING ---
 
 function checkAdmin() {
-    // If user's email is admin@admin.com, show the server list
     if(playerState.email === 'admin@admin.com') {
         document.getElementById('admin-browser').classList.remove('hidden');
         loadAdminBrowser();
@@ -124,19 +137,20 @@ async function loadAdminBrowser() {
 async function adminForceJoin(roomId, mode) {
     currentRoomId = roomId;
     gameState.isHost = false;
-    await db.collection('rooms').doc(roomId).update({ guestUid: playerState.uid, guestName: playerState.displayName });
+    await db.collection('rooms').doc(roomId).update({ guestUid: getPlayerId(), guestName: playerState.displayName });
     listenToRoom();
     showVitalLobby(mode);
 }
 
 async function hostMatch(mode) {
-    if(!playerState.uid) return alert("You must link an account to play online!");
+    // Restricted to Custom unless linked
+    if(!playerState.uid && mode !== 'custom') return alert("You must link an account to play online matchmaking!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("You must equip a Vital card in the Forge first!");
     
     const roomCode = mode === 'custom' ? document.getElementById('custom-room-code').value.trim() || Math.floor(1000 + Math.random() * 9000).toString() : null;
     
     const roomRef = await db.collection('rooms').add({
-        hostUid: playerState.uid, hostName: playerState.displayName,
+        hostUid: getPlayerId(), hostName: playerState.displayName,
         guestUid: null, guestName: null,
         mode: mode, roomCode: roomCode, status: 'WAITING', lockedVitals: 0,
         p1State: null, p2State: null, chat: [], logs: []
@@ -150,7 +164,8 @@ async function hostMatch(mode) {
 }
 
 async function joinMatch(mode) {
-    if(!playerState.uid) return alert("You must link an account to play online!");
+    // Restricted to Custom unless linked
+    if(!playerState.uid && mode !== 'custom') return alert("You must link an account to play online matchmaking!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("You must equip a Vital card in the Forge first!");
     
     let query = db.collection('rooms').where('mode', '==', mode).where('status', '==', 'WAITING');
@@ -169,7 +184,7 @@ async function joinMatch(mode) {
     gameState.isHost = false;
     
     await db.collection('rooms').doc(currentRoomId).update({
-        guestUid: playerState.uid, guestName: playerState.displayName
+        guestUid: getPlayerId(), guestName: playerState.displayName
     });
     
     listenToRoom();
@@ -218,7 +233,7 @@ function listenToRoom() {
             const newChats = data.chat.slice(lastChatCount);
             const chatBox = document.getElementById('chat-log');
             newChats.forEach(c => {
-                const isMe = c.uid === playerState.uid;
+                const isMe = c.uid === getPlayerId();
                 chatBox.innerHTML += `<div><span class="${isMe ? 'text-green-500' : 'text-red-500'} font-bold">${isMe ? 'You' : 'Opp'}:</span> ${c.msg}</div>`;
             });
             chatBox.scrollTop = chatBox.scrollHeight;
@@ -230,21 +245,25 @@ function listenToRoom() {
             const newLogs = data.logs.slice(lastLogCount);
             const logBox = document.getElementById('action-log');
             newLogs.forEach(l => {
-                if (l.uid !== playerState.uid) logBox.innerHTML += `<div><span class="text-amber-500">></span> Opponent: ${l.msg}</div>`;
+                if (l.uid !== getPlayerId()) logBox.innerHTML += `<div><span class="text-amber-500">></span> Opponent: ${l.msg}</div>`;
             });
             logBox.scrollTop = logBox.scrollHeight;
             lastLogCount = data.logs.length;
         }
         
-        // Game Over Detection
+        // Game Over Detection & Rewards
         if(data.status === 'FINISHED' && gameState.phase === 'PLAYING') {
-            if(data.loserUid === playerState.uid) {
+            if(data.loserUid === getPlayerId()) {
                 alert("DEFEATED! You have lost the match.");
             } else {
-                alert("WINNER! Your opponent was defeated or surrendered. You earned 3 Gold.");
-                playerState.accountGold += 3;
-                db.collection('players').doc(playerState.uid).update({ accountGold: playerState.accountGold });
-                updateUI();
+                if ((data.mode === 'quickplay' || data.mode === 'starters') && playerState.uid) {
+                    alert("WINNER! Your opponent was defeated or surrendered. You earned 3 Gold.");
+                    playerState.accountGold += 3;
+                    db.collection('players').doc(playerState.uid).update({ accountGold: playerState.accountGold });
+                    updateUI();
+                } else {
+                    alert("WINNER! Your opponent was defeated or surrendered.");
+                }
             }
             executeLeaveMatch();
         }
@@ -435,7 +454,7 @@ function logAction(msg) {
     
     if (currentRoomId && currentRoomId !== "SANDBOX") {
         db.collection('rooms').doc(currentRoomId).update({
-            logs: firebase.firestore.FieldValue.arrayUnion({ uid: playerState.uid, msg: msg })
+            logs: firebase.firestore.FieldValue.arrayUnion({ uid: getPlayerId(), msg: msg })
         });
     }
 }
@@ -448,7 +467,7 @@ function sendChat() {
     
     if (currentRoomId && currentRoomId !== "SANDBOX") {
         db.collection('rooms').doc(currentRoomId).update({
-            chat: firebase.firestore.FieldValue.arrayUnion({ uid: playerState.uid, msg: msg })
+            chat: firebase.firestore.FieldValue.arrayUnion({ uid: getPlayerId(), msg: msg })
         });
     } else {
         const chat = document.getElementById('chat-log');
@@ -498,7 +517,6 @@ function renderVTT() {
                 const isMenuOpen = activeBoardMenuSlot && activeBoardMenuSlot.region === region && activeBoardMenuSlot.index === idx;
                 const exhaustedStyle = card.exhausted ? 'opacity-50 grayscale-[80%]' : '';
                 
-                // FIXED ENCODING EMOJIS HERE
                 const zzzOverlay = card.exhausted ? `<div class="zzz-overlay text-xs bg-black/80 px-2 py-1 rounded border border-amber-600">USED</div>` : '';
                 const menuOverlay = isMenuOpen && !isOpp ? `
                     <div class="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-1 z-20 rounded p-1">
@@ -591,7 +609,6 @@ function handleEmptySlotClick(region, index) {
     }
 }
 
-// --- MOVE MECHANIC ---
 function startMoving() {
     gameState.moveMode = true;
     gameState.moveSource = activeInsSlot;
@@ -621,7 +638,6 @@ function finishMoving(region, index) {
     broadcastState();
 }
 
-// --- CARD INSPECTOR LOGIC ---
 function inspectCard(card, region=null, idx=null, isOpp=false) {
     document.getElementById('ins-img').src = card.image || 'GoldBurnLogo (1).png';
     document.getElementById('ins-name').textContent = card.name;
@@ -690,7 +706,7 @@ function editCardHP(dir) {
     
     if (card.type === 'Vital' && card.currentHp <= 0) {
         if (currentRoomId && currentRoomId !== "SANDBOX") {
-            db.collection('rooms').doc(currentRoomId).update({ status: 'FINISHED', loserUid: playerState.uid });
+            db.collection('rooms').doc(currentRoomId).update({ status: 'FINISHED', loserUid: getPlayerId() });
         } else {
             alert("Your Vital has reached 0 HP.");
             executeLeaveMatch();
@@ -851,7 +867,7 @@ function endTurn() {
 function leaveMatch() {
     if (gameState.phase === 'PLAYING' && currentRoomId && currentRoomId !== "SANDBOX") {
         if (confirm("Are you sure you want to surrender? You will lose the match.")) {
-            db.collection('rooms').doc(currentRoomId).update({ status: 'FINISHED', loserUid: playerState.uid });
+            db.collection('rooms').doc(currentRoomId).update({ status: 'FINISHED', loserUid: getPlayerId() });
         }
     } else {
         executeLeaveMatch();
@@ -955,7 +971,6 @@ function filterCollection() {
         return 0;
     });
 
-    // FIXED ENCODING EMOJIS HERE (Button changed to [ i ])
     filtered.forEach(card => {
         const el = document.createElement('div');
         el.className = "bg-stone-950 border border-stone-800 p-2 rounded text-xs flex flex-col justify-between h-64 shadow-md hover:border-amber-500 transition relative";
