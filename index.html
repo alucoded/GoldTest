@@ -132,7 +132,7 @@
                             </div>
                             <div class="flex gap-2 relative">
                                 <button onclick="toggleSubtypeDropdown()" type="button" class="flex-1 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded text-left flex justify-between items-center text-xs">
-                                    <span id="subtype-dropdown-label">Types & Subtypes (All)</span><span class="text-amber-400">▼</span>
+                                    <span id="subtype-dropdown-label">Types & Subtypes (All)</span><span class="text-amber-400">笆ｼ</span>
                                 </button>
                                 <select id="filter-speed" class="w-1/4 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded" onchange="filterCollection()">
                                     <option value="all">All Speeds</option><option value="Fast">Fast Act</option><option value="Slow">Slow Act</option>
@@ -200,6 +200,16 @@
             </div>
             <p id="lobby-status" class="text-stone-400 text-sm mb-6 bg-stone-950/50 p-2 rounded">Waiting for opponent to connect...</p>
             
+            <div id="starter-deck-selection" class="hidden space-y-4 border-t border-stone-800 pt-6">
+                <p class="text-sm text-amber-400 font-bold uppercase tracking-wider">Select Your Starter Deck</p>
+                <select id="lobby-starter-select" class="w-full p-3 bg-stone-950 text-amber-400 border border-stone-700 rounded text-sm font-bold">
+                    <option value="">-- Choose a Deck --</option>
+                    <option value="Bandits Arrival Starter">Bandits Arrival</option>
+                    <option value="Devout Patronage Starter">Devout Patronage</option>
+                </select>
+                <button onclick="confirmLobbyStarter()" class="w-full bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded transition shadow">Confirm Deck</button>
+            </div>
+            
             <div id="vital-selection-area" class="hidden space-y-4 border-t border-stone-800 pt-6">
                 <p class="text-sm text-amber-400 font-bold uppercase tracking-wider">Place Your Vital Card</p>
                 <p class="text-xs text-stone-400">Select any Front or Back slot to place your Vital before starting.</p>
@@ -264,7 +274,7 @@
                             <span id="opp-deck-hud" class="z-10 text-stone-400 text-lg">0</span>
                         </div>
                         <div class="flex justify-center items-center text-xs border border-stone-800 p-2 bg-stone-900 rounded shadow">
-                            <span class="text-red-400 font-bold">Gold: <span id="opp-gold-val" class="text-stone-100 text-lg ml-1">3</span></span>
+                            <span class="text-red-400 font-bold">Gold: <span id="opp-gold-val" class="text-stone-100 text-lg ml-1">0</span></span>
                         </div>
                     </div>
 
@@ -391,12 +401,12 @@
                 </div>
                 
                 <div class="grid grid-cols-2 gap-2 mt-2">
-                    <button onclick="startTargeting()" class="bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-1.5 rounded text-xs transition shadow">🎯 Target Arrow</button>
-                    <button onclick="startMoving()" class="bg-blue-600 hover:bg-blue-500 text-stone-100 font-bold py-1.5 rounded text-xs transition shadow">🏃 Move</button>
+                    <button onclick="startTargeting()" class="bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-1.5 rounded text-xs transition shadow">識 Target Arrow</button>
+                    <button onclick="startMoving()" class="bg-blue-600 hover:bg-blue-500 text-stone-100 font-bold py-1.5 rounded text-xs transition shadow">純 Move</button>
                 </div>
                 <div class="grid grid-cols-2 gap-2 mt-1">
-                    <button onclick="sendToZone('gy')" class="bg-stone-950 hover:bg-stone-800 text-stone-400 font-bold py-1.5 rounded text-xs border border-stone-800 transition">💀 To GY</button>
-                    <button onclick="sendToZone('void')" class="bg-stone-950 hover:bg-stone-800 text-purple-400 font-bold py-1.5 rounded text-xs border border-purple-900/50 transition">🌌 To Void</button>
+                    <button onclick="sendToZone('gy')" class="bg-stone-950 hover:bg-stone-800 text-stone-400 font-bold py-1.5 rounded text-xs border border-stone-800 transition">逐 To GY</button>
+                    <button onclick="sendToZone('void')" class="bg-stone-950 hover:bg-stone-800 text-purple-400 font-bold py-1.5 rounded text-xs border border-purple-900/50 transition">血 To Void</button>
                 </div>
             </div>
             
