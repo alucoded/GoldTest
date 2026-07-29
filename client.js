@@ -172,7 +172,7 @@ async function joinMatch(mode) {
     
     const updates = { [`players.${getPlayerId()}`]: newPlayer };
     const pCount = Object.keys(data.players).length + 1;
-    if (mode !== 'custom' && pCount >= 2) updates.status = 'PLAYING_VITAL'; // lock queue
+    if (mode !== 'custom' && pCount >= 2) updates.status = 'PLAYING_VITAL'; 
     if (mode === 'custom' && pCount >= data.rules.maxPlayers) updates.status = 'LOCKED';
     
     await db.collection('rooms').doc(currentRoomId).update(updates);
@@ -250,7 +250,7 @@ function lockInVital() {
     
     if (currentRoomId === "SANDBOX") { enterMatch(); } 
     else {
-        broadcastState(); // sync vital placement to db
+        broadcastState();
         db.collection('rooms').doc(currentRoomId).update({ lockedVitals: firebase.firestore.FieldValue.increment(1) });
     }
 }
@@ -329,7 +329,6 @@ function listenToRoom() {
 
         if (gameState.phase === 'VITAL' && data.lockedVitals >= Object.keys(data.players).length) {
             if (gameState.isHost && data.turnOrder.length === 0) {
-                // Initialize turn order and gold
                 let tOrder = Object.keys(data.players);
                 tOrder.sort(() => Math.random() - 0.5);
                 const updates = { turnOrder: tOrder, activeTurnUid: tOrder[0], status: 'PLAYING', [`players.${tOrder[0]}.gold`]: 3 };
@@ -340,7 +339,6 @@ function listenToRoom() {
         if (data.status === 'PLAYING' && gameState.phase === 'VITAL') { enterMatch(); }
 
         if (gameState.phase === 'PLAYING') {
-            // Check Target Line
             if(data.lastTarget && (!gameState.lastTarget || data.lastTarget.id !== gameState.lastTarget.id)) {
                 gameState.lastTarget = data.lastTarget;
                 drawTargetLine(data.lastTarget);
@@ -380,7 +378,6 @@ function listenToRoom() {
 function broadcastState() {
     if (currentRoomId === "SANDBOX" || !currentRoomId || !gameState.players[getPlayerId()]) return;
     gameState.players[getPlayerId()].deckCount = gameState.deck.length;
-    // strip undefined
     const pData = JSON.parse(JSON.stringify(gameState.players[getPlayerId()]));
     db.collection('rooms').doc(currentRoomId).update({ [`players.${getPlayerId()}`]: pData }).catch(e=>console.error(e));
 }
@@ -401,7 +398,6 @@ function renderVTT() {
     const myP = gameState.players[myUid];
     if(!myP) return;
 
-    // Check Spectator State
     if(myP.spectator) {
         document.getElementById('player-hand-container').classList.add('hidden');
         document.getElementById('btn-end-turn').classList.add('hidden');
@@ -413,7 +409,6 @@ function renderVTT() {
     document.getElementById('deck-count-hud').textContent = gameState.deck.length;
     document.getElementById('match-gold-val').textContent = myP.gold || 0;
     
-    // Turn Order Panel
     const toPanel = document.getElementById('turn-order-list');
     toPanel.innerHTML = '';
     gameState.turnOrder.forEach(uid => {
@@ -423,7 +418,6 @@ function renderVTT() {
         toPanel.innerHTML += `<div class="flex items-center gap-2 p-1 rounded transition ${isAct?'turn-active border border-amber-500':'border border-stone-800 opacity-70'}"><img src="${p.photo}" class="w-6 h-6 rounded-full"><span class="text-xs font-bold ${isAct?'text-amber-400':'text-stone-400'} truncate w-full">${p.name}</span></div>`;
     });
 
-    // My Hand
     const handEl = document.getElementById('player-hand-container'); handEl.innerHTML = '';
     if(!myP.spectator) {
         gameState.hand.forEach((card, idx) => {
@@ -441,14 +435,12 @@ function renderVTT() {
         });
     }
 
-    // Opponent Boards Rendering (Dynamic for 3-4 players)
     const oppContainer = document.getElementById('opponents-container'); oppContainer.innerHTML = '';
     Object.entries(gameState.players).forEach(([uid, p]) => {
         if (uid === myUid || p.spectator) return;
-        
         let shouldRenderHandOverlay = '';
         const cb = document.getElementById(`spec-chk-${uid}`);
-        if(cb && cb.checked && p.handCache) { // For simplicity, full hand rendering for spectator requires sending hand array to db. (Omitted complex hand sync to save space, but UI placeholder exists).
+        if(cb && cb.checked && p.handCache) {
             shouldRenderHandOverlay = `<div class="absolute inset-0 bg-black/80 flex items-center justify-center text-xs text-amber-500 font-bold z-20">Viewing Hand (Simulated)</div>`;
         }
 
@@ -474,7 +466,6 @@ function renderVTT() {
         oppContainer.innerHTML += oppHtml;
     });
 
-    // My Board Rendering
     ['playerFront', 'playerBack', 'center'].forEach(region => {
         const max = 3;
         const isCenter = region === 'center';
@@ -482,18 +473,16 @@ function renderVTT() {
         for(let idx=0; idx<max; idx++) {
             const el = document.getElementById(`${region}-${idx}`);
             if(!el) continue;
-            // Map opponent act slot if 1v1
             let card = null;
             let renderUid = myUid;
             if(isCenter && idx === 0) {
                 const opps = Object.keys(gameState.players).filter(u=>u!==myUid && !gameState.players[u].spectator);
-                if(opps.length > 0) { renderUid = opps[0]; card = gameState.players[renderUid].center[2]; } // Map opp act to slot 0
+                if(opps.length > 0) { renderUid = opps[0]; card = gameState.players[renderUid].center[2]; } 
             } else if (isCenter && idx === 1) {
-                 card = myP.center[1]; // Shared zone sync (simplified to owner for brevity)
+                 card = myP.center[1]; 
             } else {
                  card = myP[dbRegion][idx];
             }
-            
             el.outerHTML = renderSlotHtml(card, renderUid, dbRegion, idx, false, isCenter, region);
         }
     });
@@ -555,7 +544,6 @@ function handleEmptySlotClick(region, index) {
         const card = gameState.hand[selectedHandIndex];
         const myP = gameState.players[getPlayerId()];
         
-        // Strict Validation Rules
         if (card.type === 'Act' && (region !== 'center' || index !== 2)) return alert("Act cards can only go in YOUR ACT slot.");
         if (card.type === 'Zone' && (region !== 'center' || index !== 1)) return alert("Zone cards can only go in SHARED ZONE.");
         if (card.type !== 'Act' && region === 'center' && index === 2) return alert("Only Act cards can go in YOUR ACT.");
@@ -621,6 +609,14 @@ function inspectEmpty() {
     ['ins-board-actions','ins-hand-actions','ins-zone-actions','ins-empty-actions'].forEach(id => document.getElementById(id).classList.add('hidden'));
 }
 function showEmptyInspector() { inspectEmpty(); document.getElementById('ins-name').textContent = "Empty Slot"; document.getElementById('ins-empty-actions').classList.remove('hidden'); }
+
+function enlargeImage() {
+    const src = document.getElementById('ins-img').src;
+    if (src && !src.includes('GoldBurnLogo')) {
+        document.getElementById('enlarged-img').src = src;
+        document.getElementById('enlarge-modal').classList.remove('hidden');
+    }
+}
 
 // --- ACTIONS ---
 function drawCard() {
@@ -717,7 +713,7 @@ function sendChat() {
         }
         else if(cmd === '/enemy') {
             const my = gameState.players[getPlayerId()];
-            let tf = my.front; my.front = my.back; my.back = tf; // simplistic swap for testing
+            let tf = my.front; my.front = my.back; my.back = tf; 
             logAction("Swapped rows."); renderVTT(); broadcastState();
         }
         return;
@@ -779,10 +775,259 @@ function executeLeaveMatch() {
     switchTab('play'); loadLocalDeck();
 }
 
-// Local Storage & UI (Deck Builder omitted internals for brevity, unchanged)
-function loadLocalDeck() { const d = localStorage.getItem('gb_deck'); if(d) playerState.currentDeck=JSON.parse(d); playerState.currentVital=localStorage.getItem('gb_vital'); }
-function saveLocalDeck() { localStorage.setItem('gb_deck', JSON.stringify(playerState.currentDeck)); localStorage.setItem('gb_vital', playerState.currentVital||''); }
+// --- FORGE & DECK MANAGER ---
+function loadLocalDeck() {
+    const d = localStorage.getItem('gb_currentDeck');
+    if(d) playerState.currentDeck = JSON.parse(d);
+    playerState.currentVital = localStorage.getItem('gb_currentVital') || null;
+    playerState.activeDeckName = localStorage.getItem('gb_activeDeckName') || "Custom Deck";
+}
+function saveLocalDeck() {
+    localStorage.setItem('gb_currentDeck', JSON.stringify(playerState.currentDeck));
+    localStorage.setItem('gb_currentVital', playerState.currentVital || '');
+    localStorage.setItem('gb_activeDeckName', playerState.activeDeckName);
+}
+
+function isCardOwned(card) {
+    if(card.id === 'DW_thebanditcaptain' && (!playerState.uid || playerState.unlockedCards.includes('Bandits Arrival Starter'))) return true;
+    if(!playerState.uid) return card.set && card.set.includes('Bandits Arrival');
+    if(playerState.unlockedCards.includes(card.id)) return true;
+    if(card.set && card.set.includes('Bandits') && playerState.unlockedCards.includes('Bandits Arrival Starter')) return true;
+    if(card.set && card.set.includes('Devout') && playerState.unlockedCards.includes('Devout Patronage Starter')) return true;
+    return false;
+}
+
+function toggleSubtypeDropdown() { document.getElementById('subtype-dropdown-panel').classList.toggle('hidden'); }
+
+let selectedFilterTypes = new Set();
+function filterCollection() {
+    const qName = document.getElementById('card-search-name').value.toLowerCase();
+    const qDesc = document.getElementById('card-search-desc').value.toLowerCase();
+    const cost = document.getElementById('filter-cost').value;
+    const setFilter = document.getElementById('filter-set').value;
+    const speed = document.getElementById('filter-speed').value;
+    const sort = document.getElementById('sort-by').value;
+    const grid = document.getElementById('collection-grid');
+    if(!grid) return;
+    grid.innerHTML = '';
+
+    const panel = document.getElementById('subtype-dropdown-panel');
+    if (panel && panel.children.length === 0) {
+        const availableTypes = new Set(); const availableSubtypes = new Set();
+        MASTER_CARDS.forEach(c => {
+            if (isCardOwned(c)) {
+                if(c.type) availableTypes.add(c.type);
+                if(c.subtypes) c.subtypes.forEach(s => availableSubtypes.add(s));
+            }
+        });
+        
+        let html = `<div class="font-bold text-amber-400 text-xs mb-1 border-b border-stone-800 pb-1">Types</div><div class="grid grid-cols-3 md:grid-cols-4 gap-1 mb-2">`;
+        availableTypes.forEach(t => html += `<label class="flex items-center space-x-2 text-stone-300 text-xs cursor-pointer"><input type="checkbox" value="${t}" onchange="handleSubtype(this)" class="rounded bg-stone-900 border-stone-700 text-amber-500"><span>${t}</span></label>`);
+        html += `</div><div class="font-bold text-amber-400 text-xs mb-1 border-b border-stone-800 pb-1">Subtypes</div><div class="grid grid-cols-3 md:grid-cols-4 gap-1">`;
+        availableSubtypes.forEach(st => html += `<label class="flex items-center space-x-2 text-stone-300 text-xs cursor-pointer"><input type="checkbox" value="${st}" onchange="handleSubtype(this)" class="rounded bg-stone-900 border-stone-700 text-amber-500"><span>${st}</span></label>`);
+        panel.innerHTML = html + `</div>`;
+    }
+
+    let filtered = MASTER_CARDS.filter(card => {
+        if (!isCardOwned(card)) return false;
+        if (qName && !card.name.toLowerCase().includes(qName)) return false;
+        if (qDesc && (!card.description || !card.description.toLowerCase().includes(qDesc))) return false;
+        if (cost !== 'all') {
+            const cc = card.cost || 0;
+            if (cost === '<3' && cc >= 3) return false;
+            if (cost === '3' && cc !== 3) return false;
+            if (cost === '>3' && cc <= 3) return false;
+            if (cost === 'special' && card.type !== 'Zone' && card.type !== 'Act') return false;
+        }
+        if (setFilter !== 'all' && (!card.set || !card.set.includes(setFilter))) return false;
+        if (speed !== 'all' && (!card.subtypes || !card.subtypes.includes(speed))) return false;
+        if (selectedFilterTypes.size > 0) {
+            const matchT = selectedFilterTypes.has(card.type);
+            const matchS = card.subtypes && card.subtypes.some(s => selectedFilterTypes.has(s));
+            if(!matchT && !matchS) return false;
+        }
+        return true;
+    });
+
+    filtered.sort((a,b) => {
+        if(sort === 'name') return a.name.localeCompare(b.name);
+        if(sort === 'type') return a.type.localeCompare(b.type);
+        if(sort === 'cost') return (a.cost||0) - (b.cost||0);
+        return 0;
+    });
+
+    filtered.forEach(card => {
+        const el = document.createElement('div');
+        el.className = "bg-stone-950 border border-stone-800 p-2 rounded text-xs flex flex-col justify-between h-64 shadow-md hover:border-amber-500 transition relative";
+        el.innerHTML = `
+            <div class="flex justify-between items-center mb-1">
+                <span class="text-amber-400 font-bold truncate text-sm flex-1">${card.name}</span>
+                <button onclick="showCardDetails('${card.id}')" class="bg-stone-800 text-stone-300 hover:text-amber-400 px-1.5 py-0.5 rounded text-[10px] ml-1 shadow font-bold border border-stone-700">[ i ]</button>
+            </div>
+            <div class="flex-1 overflow-hidden bg-stone-900 rounded flex items-center justify-center p-1 border border-stone-800 cursor-pointer" onclick="addCardToDeck('${card.id}')">
+                <img src="${card.image}" class="h-full w-full object-contain" onerror="this.src='GoldBurnLogo (1).png'">
+            </div>
+            <div class="text-[10px] text-stone-500 my-1">${card.type} | Cost: ${card.cost||0}</div>
+            <button onclick="addCardToDeck('${card.id}')" class="bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-1.5 rounded transition shadow">Add to Deck</button>`;
+        grid.appendChild(el);
+    });
+}
+
+function handleSubtype(cb) {
+    if (cb.checked) selectedFilterTypes.add(cb.value); else selectedFilterTypes.delete(cb.value);
+    document.getElementById('subtype-dropdown-label').textContent = selectedFilterTypes.size > 0 ? `Selected (${selectedFilterTypes.size})` : "Types & Subtypes";
+    filterCollection();
+}
+
+function showCardDetails(id) {
+    const card = MASTER_CARDS.find(c => c.id === id);
+    document.getElementById('cd-img').src = card.image || 'GoldBurnLogo (1).png';
+    document.getElementById('cd-name').textContent = card.name;
+    document.getElementById('cd-stats').textContent = `Cost: ${card.cost||0} | HP: ${card.hp||'-'} | Set: ${card.set||'Core'} | ${card.type} - ${card.subtypes ? card.subtypes.join(', ') : ''}`;
+    document.getElementById('cd-desc').textContent = card.description || 'No description available.';
+    document.getElementById('card-details-modal').classList.remove('hidden');
+}
+function closeCardDetails(e) { if(e && e.target.id === 'card-details-modal') document.getElementById('card-details-modal').classList.add('hidden'); }
+
+function addCardToDeck(id) {
+    const card = MASTER_CARDS.find(c => c.id === id);
+    if (card.type === 'Vital') {
+        playerState.currentVital = id;
+    } else {
+        const count = playerState.currentDeck[id] || 0;
+        if (count >= (card.limit || 3)) return alert(`Limit ${card.limit||3} per card.`);
+        let total = 0; for (let amt of Object.values(playerState.currentDeck)) total += amt;
+        if (total >= 30) return alert("Main deck limit 30 reached.");
+        playerState.currentDeck[id] = count + 1;
+    }
+    renderDeckList(); saveLocalDeck();
+}
+
+function removeCardFromDeck(id) {
+    if(playerState.currentDeck[id]) {
+        playerState.currentDeck[id]--;
+        if(playerState.currentDeck[id] <= 0) delete playerState.currentDeck[id];
+        renderDeckList(); saveLocalDeck();
+    }
+}
+function removeVitalCard() { playerState.currentVital = null; renderDeckList(); saveLocalDeck(); }
+
+function renderDeckList() {
+    const list = document.getElementById('deck-list');
+    if(!list) return;
+    list.innerHTML = '';
+    
+    const vitalDisplay = document.getElementById('vital-card-display');
+    if (playerState.currentVital) {
+        const v = MASTER_CARDS.find(c => c.id === playerState.currentVital);
+        vitalDisplay.textContent = v ? v.name : "None";
+    } else {
+        vitalDisplay.textContent = "None";
+    }
+
+    let total = 0;
+    for (const [id, count] of Object.entries(playerState.currentDeck)) {
+        const c = MASTER_CARDS.find(card => card.id === id);
+        total += count;
+        const el = document.createElement('div');
+        el.className = "flex justify-between items-center text-xs border-b border-stone-800 py-1.5";
+        el.innerHTML = `<span class="text-stone-300 font-bold">${c.name} <span class="text-amber-500">x${count}</span></span> <button onclick="removeCardFromDeck('${id}')" class="text-red-500 hover:text-red-400 font-bold bg-stone-900 px-2 rounded border border-stone-700">X</button>`;
+        list.appendChild(el);
+    }
+    document.getElementById('deck-count').textContent = `${total} / 30`;
+    document.getElementById('deck-name-input').value = playerState.activeDeckName;
+
+    const saved = document.getElementById('saved-decks-select');
+    saved.innerHTML = `<option value="">-- Load Saved Deck --</option>`;
+    for (const d of Object.keys(playerState.customDecks)) {
+        saved.innerHTML += `<option value="${d}" ${playerState.activeDeckName === d ? 'selected' : ''}>${d}</option>`;
+    }
+}
+
+function saveCurrentDeck() {
+    const name = document.getElementById('deck-name-input').value.trim() || "Custom Deck";
+    playerState.customDecks[name] = {...playerState.currentDeck};
+    playerState.activeDeckName = name;
+    saveLocalDeck(); renderDeckList(); alert("Deck Saved locally!");
+}
+
+function loadSelectedDeck() {
+    const name = document.getElementById('saved-decks-select').value;
+    if (name && playerState.customDecks[name]) {
+        playerState.currentDeck = {...playerState.customDecks[name]};
+        playerState.activeDeckName = name;
+        document.getElementById('deck-name-input').value = name;
+        renderDeckList(); saveLocalDeck();
+    }
+}
+function deleteSelectedDeck() {
+    const name = document.getElementById('saved-decks-select').value;
+    if (name) { delete playerState.customDecks[name]; renderDeckList(); saveLocalDeck(); }
+}
+function exportDeckCode() { prompt("Deck Code:", btoa(JSON.stringify({v: playerState.currentVital, m: playerState.currentDeck}))); }
+function importDeckCode() {
+    try {
+        const c = JSON.parse(atob(prompt("Paste Code:")));
+        if (c.m) playerState.currentDeck = c.m; if (c.v) playerState.currentVital = c.v;
+        renderDeckList(); saveLocalDeck();
+    } catch(e) { alert("Invalid Code"); }
+}
+
+function equipStarterDeck() {
+    const val = document.getElementById('equip-starter-select').value;
+    if (val && STARTER_DECKS[val]) {
+        const isOwned = !playerState.uid ? (val === "Bandits Arrival Starter") : playerState.unlockedCards.includes(val);
+        if(!isOwned) return alert("You must buy this deck in the Store first!");
+
+        playerState.currentDeck = {};
+        for (const [id, count] of Object.entries(STARTER_DECKS[val])) {
+            const card = MASTER_CARDS.find(c => c.id === id);
+            if (card.type === 'Vital') playerState.currentVital = id; else playerState.currentDeck[id] = count;
+        }
+        playerState.activeDeckName = val;
+        saveLocalDeck(); renderDeckList(); alert(`Equipped ${val}`);
+    }
+}
+
+// --- STORE & INVENTORY ---
+function buyStoreItem(key, cost) {
+    if (playerState.accountGold >= cost) {
+        playerState.accountGold -= cost;
+        if (!playerState.unlockedCards.includes(key)) playerState.unlockedCards.push(key);
+        
+        if (playerState.uid) {
+            db.collection('players').doc(playerState.uid).update({ 
+                accountGold: playerState.accountGold, unlockedCards: playerState.unlockedCards 
+            });
+        }
+        updateUI(); filterCollection(); renderStoreAndInventory();
+    } else { alert("Not enough account gold!"); }
+}
+
+function renderStoreAndInventory() {
+    const store = document.getElementById('store-items-container');
+    const inv = document.getElementById('inventory-list');
+    if(!store || !inv) return;
+    store.innerHTML = ''; inv.innerHTML = '';
+
+    STORE_ITEMS.forEach(i => {
+        if (!playerState.unlockedCards.includes(i.key)) {
+            const el = document.createElement('div');
+            el.className = "bg-stone-900 border border-stone-800 p-4 rounded shadow-lg flex flex-col justify-between";
+            el.innerHTML = `<div><h3 class="text-amber-400 font-bold text-lg mb-1">${i.name}</h3><p class="text-stone-400 text-xs mb-3">${i.desc}</p></div><button onclick="buyStoreItem('${i.key}', ${i.cost})" class="w-full bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded transition shadow">Buy (${i.cost}G)</button>`;
+            store.appendChild(el);
+        }
+    });
+
+    if (playerState.unlockedCards.length === 0) inv.innerHTML = `<p class="text-xs text-stone-500 col-span-full">No items unlocked yet.</p>`;
+    playerState.unlockedCards.forEach(item => {
+        const el = document.createElement('div');
+        el.className = "bg-stone-950 border border-amber-500/50 p-3 rounded text-center text-xs font-bold text-amber-400 shadow flex flex-col justify-center items-center";
+        el.innerHTML = `<div class="text-stone-500 text-[10px] mb-1">UNLOCKED</div><div>${item}</div>`;
+        inv.appendChild(el);
+    });
+}
+
 function updateUI() { document.getElementById('account-gold-display').textContent = playerState.accountGold; }
-// Ensure basic stub implementations for builder
-function filterCollection(){} function renderDeckList(){} function renderStoreAndInventory(){} function testDeckInSandbox(){ currentRoomId="SANDBOX"; showVitalLobby('sandbox'); }
-window.onload = () => { loadLocalDeck(); updateUI(); };
+function testDeckInSandbox(){ currentRoomId="SANDBOX"; showVitalLobby('sandbox'); }
+window.onload = () => { loadLocalDeck(); updateUI(); filterCollection(); renderDeckList(); renderStoreAndInventory(); };
