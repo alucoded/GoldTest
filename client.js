@@ -26,11 +26,12 @@ let lastChatCount = 0; let lastLogCount = 0;
 let gameState = {
     isHost: false, roomCode: null, phase: 'LOBBY', mode: 'quickplay',
     players: {}, turnOrder: [], activeTurnUid: null, spectatorVision: {},
-    hand: [], deck: [], lastTarget: null, lastKnownPing: null,
+    hand: [], deck: [], lastTarget: null, 
+    lastKnownPing: null, localLastPingTime: null,
     targetMode: false, targetSource: null, moveMode: false, moveSource: null
 };
 
-let selectedHandIndex = null; let activeInsSlot = null; let activeBoardMenuSlot = null;
+let selectedHandIndex = null; let activeInsSlot = null;
 let matchTimerInterval = null; let matchSeconds = 0; let hostPingInterval = null;
 
 const STORE_ITEMS = [
@@ -109,15 +110,15 @@ function filterAdminList() {
     allPlayersCache.filter(p => p.displayName?.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q)).forEach(p => {
         let cardsHtml = `<select id="rem-${p.id}" class="bg-stone-800 text-xs rounded p-1"><option value="">-- Remove Item --</option>`;
         (p.unlockedCards||[]).forEach(c => cardsHtml += `<option value="${c}">${c}</option>`);
-        cardsHtml += `</select><button onclick="adminRemoveItem('${p.id}')" class="bg-red-800 px-2 rounded text-xs ml-1">Del</button>`;
+        cardsHtml += `</select><button onclick="adminRemoveItem('${p.id}')" class="bg-red-800 hover:bg-red-700 px-2 rounded text-xs ml-1 transition">Del</button>`;
         
-        list.innerHTML += `<div class="bg-stone-900 border border-stone-700 p-3 rounded flex flex-col gap-2">
+        list.innerHTML += `<div class="bg-stone-900 border border-stone-700 p-3 rounded flex flex-col gap-2 shadow">
             <div class="flex justify-between items-center text-xs">
                 <span class="font-bold text-amber-400">${p.displayName}</span> <span class="text-stone-500">${p.email}</span>
             </div>
             <div class="flex gap-2 text-xs items-center">
                 <input type="text" id="name-${p.id}" value="${p.displayName}" class="bg-stone-950 border border-stone-800 p-1 rounded">
-                <button onclick="adminEditName('${p.id}')" class="bg-stone-800 px-2 py-1 rounded">Save Name</button>
+                <button onclick="adminEditName('${p.id}')" class="bg-stone-800 hover:bg-stone-700 px-2 py-1 rounded transition">Save Name</button>
                 <div class="ml-auto flex items-center">${cardsHtml}</div>
             </div>
         </div>`;
@@ -135,11 +136,43 @@ async function adminRemoveItem(uid) {
 }
 
 // --- MATCHMAKING & PRE-LOBBY ---
+async function queueMatch(mode) {
+    if(!playerState.uid) return alert("Guests can only play Custom matches!");
+    if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Forge first!");
+    
+    const btnId = mode === 'quickplay' ? 'btn-quickplay' : 'btn-starters';
+    const btn = document.getElementById(btnId);
+    const origText = btn.textContent;
+    btn.textContent = "Searching..."; btn.disabled = true;
+
+    let joined = false;
+    const query = db.collection('rooms').where('mode', '==', mode).where('status', '==', 'WAITING');
+    
+    const unsub = query.onSnapshot(snap => {
+        if(!joined && !snap.empty) {
+            joined = true; unsub(); joinMatch(mode, null, snap.docs[0].id);
+            btn.textContent = origText; btn.disabled = false;
+        }
+    });
+
+    setTimeout(() => {
+        if(!joined) {
+            joined = true; unsub(); hostMatch(mode);
+            btn.textContent = origText; btn.disabled = false;
+        }
+    }, 5000);
+}
+
+async function handleCustomMatch() {
+    const code = document.getElementById('custom-room-code').value.trim();
+    if (code) joinMatch('custom', code); else hostMatch('custom');
+}
+
 async function hostMatch(mode) {
     if(!playerState.uid && mode !== 'custom') return alert("Guests can only play Custom matches!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Forge first!");
     
-    const roomCode = mode === 'custom' ? document.getElementById('custom-room-code').value.trim() || Math.floor(1000 + Math.random()*9000).toString() : null;
+    const roomCode = mode === 'custom' ? Math.floor(1000 + Math.random()*9000).toString() : null;
     const initialPlayer = { 
         name: playerState.displayName, photo: playerState.photoURL, spectator: false, 
         front: [null,null,null], back: [null,null,null], gy: [], void: [], center: [null,null,null], gold: 0, deckCount: 0 
@@ -167,24 +200,29 @@ async function hostMatch(mode) {
     if(mode === 'custom') showPreLobby(); else showVitalLobby(mode);
 }
 
-async function joinMatch(mode) {
+async function joinMatch(mode, code = null, directRoomId = null) {
     if(!playerState.uid && mode !== 'custom') return alert("Guests can only play Custom matches!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Forge first!");
     
-    let query = db.collection('rooms').where('mode', '==', mode).where('status', 'in', ['WAITING', 'PRE_LOBBY']);
-    if (mode === 'custom') {
-        const code = document.getElementById('custom-room-code').value.trim();
-        if(!code) return alert("Enter a room code!");
-        query = query.where('roomCode', '==', code);
+    let roomDoc = null;
+    if(directRoomId) {
+        roomDoc = await db.collection('rooms').doc(directRoomId).get();
+    } else {
+        let query = db.collection('rooms').where('mode', '==', mode).where('status', 'in', ['WAITING', 'PRE_LOBBY']);
+        if (mode === 'custom') {
+            if(!code) return alert("Enter a room code!");
+            query = query.where('roomCode', '==', code);
+        }
+        const snap = await query.limit(1).get();
+        if (snap.empty) return alert("No rooms found!");
+        roomDoc = snap.docs[0];
     }
     
-    const snap = await query.limit(1).get();
-    if (snap.empty) return alert("No rooms found!");
-    
-    const roomDoc = snap.docs[0];
     const data = roomDoc.data();
     currentRoomId = roomDoc.id; gameState.roomCode = data.roomCode; gameState.isHost = false; gameState.mode = mode;
-    gameState.lastKnownPing = data.lastPing || Date.now();
+    
+    gameState.lastKnownPing = data.lastPing || null;
+    gameState.localLastPingTime = Date.now();
     
     const newPlayer = { name: playerState.displayName, photo: playerState.photoURL, spectator: false, front: [null,null,null], back: [null,null,null], gy: [], void: [], center: [null,null,null], gold: 0, deckCount: 0 };
     
@@ -197,8 +235,8 @@ async function joinMatch(mode) {
     
     if(mode !== 'sandbox') {
         hostPingInterval = setInterval(() => {
-            if (!gameState.isHost && currentRoomId && gameState.lastKnownPing) {
-                if (Date.now() - gameState.lastKnownPing > 30000) {
+            if (!gameState.isHost && currentRoomId && gameState.localLastPingTime) {
+                if (Date.now() - gameState.localLastPingTime > 30000) {
                     alert("Host disconnected. Lobby tie."); executeLeaveMatch();
                 }
             }
@@ -240,17 +278,23 @@ function showVitalLobby(mode) {
     const sArea = document.getElementById('starter-deck-selection');
     vArea.classList.add('hidden'); sArea.classList.add('hidden');
     
+    const btn = document.getElementById('btn-lock-in-vital');
+    btn.textContent = "Lock In Vital"; btn.disabled = true;
+    btn.classList.remove('bg-amber-600', 'text-stone-950'); btn.classList.add('bg-stone-800', 'text-stone-500');
+    pendingVitalSlot = null;
+    document.querySelectorAll('.vital-btn').forEach(b => {
+        b.classList.remove('border-amber-400'); 
+        b.innerHTML = b.id.includes('Front') ? 'F'+(parseInt(b.id.split('-')[2])+1) : 'B'+(parseInt(b.id.split('-')[2])+1);
+    });
+    
     let isStarter = mode === 'starters' || (gameState.rules && gameState.rules.starter);
     if (mode === 'sandbox') {
         document.getElementById('lobby-title').textContent = "SANDBOX"; vArea.classList.remove('hidden'); loadDeckIntoGameState();
     } else if (isStarter) {
         document.getElementById('lobby-status').textContent = "Choose your Starter Deck."; sArea.classList.remove('hidden');
     } else {
-        document.getElementById('lobby-status').textContent = gameState.isHost ? "Waiting for players..." : "Select your vital.";
-        vArea.classList.remove('hidden'); loadDeckIntoGameState();
+        document.getElementById('lobby-status').textContent = "Waiting for players..."; vArea.classList.remove('hidden'); loadDeckIntoGameState();
     }
-    document.getElementById('btn-lock-in-vital').disabled = true;
-    document.getElementById('btn-lock-in-vital').textContent = "Lock In Vital";
 }
 
 let pendingVitalSlot = null;
@@ -264,12 +308,30 @@ function selectVitalSlot(region, idx) {
             btn.classList.remove('border-amber-400'); btn.innerHTML = btn.id.includes('Front') ? 'F'+(parseInt(btn.id.split('-')[2])+1) : 'B'+(parseInt(btn.id.split('-')[2])+1);
         }
     });
-    document.getElementById('btn-lock-in-vital').disabled = false;
+    checkVitalLockinStatus();
+}
+
+function checkVitalLockinStatus() {
+    const btn = document.getElementById('btn-lock-in-vital');
+    if (btn.disabled && btn.textContent === "Waiting for others...") return; 
+    
+    if (currentRoomId === "SANDBOX") {
+        if(pendingVitalSlot) { btn.disabled = false; btn.classList.replace('bg-stone-800', 'bg-amber-600'); btn.classList.replace('text-stone-500', 'text-stone-950'); }
+        return;
+    }
+
+    const isFull = Object.keys(gameState.players).length >= (gameState.mode === 'custom' ? 2 : 2); 
+    if(isFull && pendingVitalSlot) {
+        btn.disabled = false; btn.classList.replace('bg-stone-800', 'bg-amber-600'); btn.classList.replace('text-stone-500', 'text-stone-950');
+    } else {
+        btn.disabled = true; btn.classList.replace('bg-amber-600', 'bg-stone-800'); btn.classList.replace('text-stone-950', 'text-stone-500');
+    }
 }
 
 function lockInVital() {
-    document.getElementById('btn-lock-in-vital').disabled = true;
-    document.getElementById('btn-lock-in-vital').textContent = "Waiting for others...";
+    const btn = document.getElementById('btn-lock-in-vital');
+    btn.disabled = true; btn.textContent = "Waiting for others...";
+    btn.classList.replace('bg-amber-600', 'bg-stone-800'); btn.classList.replace('text-stone-950', 'text-stone-500');
     
     const vIdx = gameState.deck.findIndex(c => c.type === 'Vital');
     if (vIdx !== -1) {
@@ -341,7 +403,11 @@ function listenToRoom() {
         gameState.rules = data.rules || {};
         gameState.turnOrder = data.turnOrder || [];
         gameState.activeTurnUid = data.activeTurnUid;
-        if (data.lastPing) gameState.lastKnownPing = data.lastPing;
+        
+        if (data.lastPing && data.lastPing !== gameState.lastKnownPing) {
+            gameState.lastKnownPing = data.lastPing;
+            gameState.localLastPingTime = Date.now();
+        }
 
         if(data.status === 'CLOSED') { alert("Room closed."); executeLeaveMatch(); return; }
 
@@ -357,6 +423,19 @@ function listenToRoom() {
         
         if (gameState.phase === 'LOBBY' && data.status === 'PLAYING_VITAL') {
             showVitalLobby(data.mode); gameState.phase = 'VITAL';
+        }
+        
+        if (gameState.phase === 'VITAL') {
+            const ls = document.getElementById('lobby-status');
+            if (Object.keys(data.players).length >= 2) {
+                ls.textContent = "Player found! Select & lock in your vital.";
+                ls.classList.replace('text-stone-400', 'text-amber-400');
+                checkVitalLockinStatus();
+            } else {
+                ls.textContent = "Waiting for players...";
+                ls.classList.replace('text-amber-400', 'text-stone-400');
+                checkVitalLockinStatus();
+            }
         }
 
         if (gameState.phase === 'VITAL' && data.lockedVitals >= Object.keys(data.players).length) {
@@ -427,7 +506,7 @@ function startMatchTimer() {
 
 function cancelModes(e) {
     if(!gameState.targetMode && !gameState.moveMode) return;
-    const ign = ['ins-board-actions', 'btn-play', 'btn-end-turn'];
+    const ign = ['ins-board-actions', 'btn-play', 'btn-end-turn', 'card-inspector'];
     if(e && ign.some(id => e.target.closest(`#${id}`))) return;
     if(gameState.targetMode) { gameState.targetMode = false; logAction("Targeting cancelled."); renderVTT(); }
     if(gameState.moveMode) { gameState.moveMode = false; logAction("Move cancelled."); renderVTT(); }
@@ -550,7 +629,7 @@ function renderVTT() {
 }
 
 function renderSlotHtml(card, uid, region, idx, isOpp, isCenter=false, htmlIdPrefix='') {
-    const sId = isCenter ? `center-${idx}` : (isOpp ? `${uid}-${region}-${idx}` : `player${region==='front'?'Front':'Back'}-${idx}`);
+    const sId = isCenter ? `${htmlIdPrefix}-${idx}` : (isOpp ? `${uid}-${region}-${idx}` : `player${region==='front'?'Front':'Back'}-${idx}`);
     if (card) {
         let mh = ''; for(let [c, a] of Object.entries(card.markers||{})) { if(a>0) mh += `<div class="marker-dot bg-${c==='black'?'stone-800':c+'-500'}">${a}</div>`; }
         const sel = activeInsSlot && activeInsSlot.region === (isCenter?htmlIdPrefix:region) && activeInsSlot.index === idx;
@@ -582,7 +661,7 @@ function toggleSpecVision(uid, checked) { gameState.spectatorVision[uid] = check
 
 function inspectFromBoard(uid, region, idx, isOpp, centerPrefix) {
     if (gameState.targetMode) {
-        const tId = centerPrefix ? `center-${idx}` : (isOpp ? `${uid}-${region}-${idx}` : `player${region==='front'?'Front':'Back'}-${idx}`);
+        const tId = centerPrefix ? `${centerPrefix}-${idx}` : (isOpp ? `${uid}-${region}-${idx}` : `player${region==='front'?'Front':'Back'}-${idx}`);
         return finishTargeting(tId);
     }
     if (gameState.moveMode) return;
