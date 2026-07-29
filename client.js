@@ -12,8 +12,8 @@ const auth = firebase.auth();
 const db = firebase.firestore();
 
 let playerState = { 
-    uid: null, email: null, displayName: "Guest Player", photoURL: "GoldBurnLogo (1).png", accountGold: 10, isAdmin: false,
-    unlockedCards: [], customDecks: {}, activeDeckName: "Custom Deck", currentDeck: {}, currentVital: null,
+    uid: null, email: null, displayName: "Guest Player", photoURL: "GoldBurnLogo (1).png", accountGold: 0, isAdmin: false,
+    unlockedCards: ['Bandits Arrival Starter'], customDecks: {}, activeDeckName: "Custom Deck", currentDeck: {}, currentVital: null,
     tempSessionId: "guest_" + Math.random().toString(36).substr(2, 9)
 };
 
@@ -21,17 +21,17 @@ function getPlayerId() { return playerState.uid || playerState.tempSessionId; }
 
 let currentRoomId = null;
 let roomUnsubscribe = null;
-let lastChatCount = 0; let lastLogCount = 0; let lastPingCount = 0;
+let lastChatCount = 0; let lastLogCount = 0;
 
 let gameState = {
     isHost: false, roomCode: null, phase: 'LOBBY', mode: 'quickplay',
-    players: {}, turnOrder: [], activeTurnUid: null, spectator: false,
-    hand: [], deck: [], lastTarget: null,
+    players: {}, turnOrder: [], activeTurnUid: null, spectatorVision: {},
+    hand: [], deck: [], lastTarget: null, lastKnownPing: null,
     targetMode: false, targetSource: null, moveMode: false, moveSource: null
 };
 
 let selectedHandIndex = null; let activeInsSlot = null; let activeBoardMenuSlot = null;
-let matchTimerInterval = null; let matchSeconds = 0; let hostDisconnectTimer = null;
+let matchTimerInterval = null; let matchSeconds = 0; let hostPingInterval = null;
 
 const STORE_ITEMS = [
     { key: "Bandits Arrival Starter", name: "Bandits Arrival Starter", cost: 0, desc: "Foundational Bandits Arrival starter deck." },
@@ -54,13 +54,13 @@ auth.onAuthStateChanged(async (user) => {
             const userRef = db.collection('players').doc(user.uid);
             const doc = await userRef.get();
             if(!doc.exists) {
-                const newProfile = { email: user.email, displayName: user.displayName, photoURL: playerState.photoURL, accountGold: 10, unlockedCards: [], isAdmin: false };
+                const newProfile = { email: user.email, displayName: user.displayName, photoURL: playerState.photoURL, accountGold: 0, unlockedCards: ['Bandits Arrival Starter'], isAdmin: false };
                 await userRef.set(newProfile, { merge: true });
-                playerState.accountGold = 10; playerState.isAdmin = false;
+                playerState.accountGold = 0; playerState.unlockedCards = ['Bandits Arrival Starter']; playerState.isAdmin = false;
             } else {
                 const data = doc.data();
-                playerState.accountGold = data.accountGold || 10;
-                playerState.unlockedCards = data.unlockedCards || [];
+                playerState.accountGold = data.accountGold !== undefined ? data.accountGold : 0;
+                playerState.unlockedCards = data.unlockedCards || ['Bandits Arrival Starter'];
                 playerState.isAdmin = data.isAdmin || false;
             }
             if(playerState.isAdmin) document.getElementById('btn-admin').classList.remove('hidden');
@@ -80,9 +80,17 @@ function toggleAuth() {
 
 function switchTab(tabId) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
-    document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+    const target = document.getElementById(`tab-${tabId}`);
+    if(target) target.classList.remove('hidden');
     if (tabId === 'forge') filterCollection();
     if (tabId === 'admin') loadAdminBrowser();
+}
+
+function hideAllViews() {
+    document.getElementById('lobby-view').classList.add('hidden');
+    document.getElementById('pre-lobby-view').classList.add('hidden');
+    document.getElementById('vital-lobby-view').classList.add('hidden');
+    document.getElementById('game-view').classList.add('hidden');
 }
 
 // --- ADMIN PANEL ---
@@ -128,7 +136,7 @@ async function adminRemoveItem(uid) {
 
 // --- MATCHMAKING & PRE-LOBBY ---
 async function hostMatch(mode) {
-    if(!playerState.uid && mode !== 'custom') return alert("Link account to play online!");
+    if(!playerState.uid && mode !== 'custom') return alert("Guests can only play Custom matches!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Forge first!");
     
     const roomCode = mode === 'custom' ? document.getElementById('custom-room-code').value.trim() || Math.floor(1000 + Math.random()*9000).toString() : null;
@@ -142,16 +150,25 @@ async function hostMatch(mode) {
         status: mode === 'custom' ? 'PRE_LOBBY' : 'WAITING',
         lockedVitals: 0, players: { [getPlayerId()]: initialPlayer }, turnOrder: [], activeTurnUid: null,
         rules: { starter: false, health: false, noZone: false, maxPlayers: 2 },
-        chat: [], logs: [], lastTarget: null
+        chat: [], logs: [], lastTarget: null, lastPing: Date.now()
     });
     
     currentRoomId = roomRef.id; gameState.roomCode = roomCode; gameState.isHost = true; gameState.mode = mode;
+    
+    if(mode !== 'sandbox') {
+        hostPingInterval = setInterval(() => {
+            if(gameState.isHost && currentRoomId && currentRoomId !== "SANDBOX") {
+                db.collection('rooms').doc(currentRoomId).update({ lastPing: Date.now() }).catch(()=>{});
+            }
+        }, 10000);
+    }
+    
     listenToRoom();
     if(mode === 'custom') showPreLobby(); else showVitalLobby(mode);
 }
 
 async function joinMatch(mode) {
-    if(!playerState.uid && mode !== 'custom') return alert("Link account to play online!");
+    if(!playerState.uid && mode !== 'custom') return alert("Guests can only play Custom matches!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Forge first!");
     
     let query = db.collection('rooms').where('mode', '==', mode).where('status', 'in', ['WAITING', 'PRE_LOBBY']);
@@ -167,6 +184,7 @@ async function joinMatch(mode) {
     const roomDoc = snap.docs[0];
     const data = roomDoc.data();
     currentRoomId = roomDoc.id; gameState.roomCode = data.roomCode; gameState.isHost = false; gameState.mode = mode;
+    gameState.lastKnownPing = data.lastPing || Date.now();
     
     const newPlayer = { name: playerState.displayName, photo: playerState.photoURL, spectator: false, front: [null,null,null], back: [null,null,null], gy: [], void: [], center: [null,null,null], gold: 0, deckCount: 0 };
     
@@ -176,12 +194,24 @@ async function joinMatch(mode) {
     if (mode === 'custom' && pCount >= data.rules.maxPlayers) updates.status = 'LOCKED';
     
     await db.collection('rooms').doc(currentRoomId).update(updates);
+    
+    if(mode !== 'sandbox') {
+        hostPingInterval = setInterval(() => {
+            if (!gameState.isHost && currentRoomId && gameState.lastKnownPing) {
+                if (Date.now() - gameState.lastKnownPing > 30000) {
+                    alert("Host disconnected. Lobby tie."); executeLeaveMatch();
+                }
+            }
+        }, 5000);
+    }
+
     listenToRoom();
     if (mode === 'custom') showPreLobby(); else showVitalLobby(mode);
 }
 
 function showPreLobby() {
-    switchTab(''); document.getElementById('pre-lobby-view').classList.remove('hidden');
+    hideAllViews();
+    document.getElementById('pre-lobby-view').classList.remove('hidden');
     document.getElementById('pre-lobby-code').textContent = gameState.roomCode;
     
     if (gameState.isHost) {
@@ -203,8 +233,8 @@ function startCustomMatch() {
 }
 
 function showVitalLobby(mode) {
-    document.getElementById('pre-lobby-view').classList.add('hidden');
-    switchTab(''); document.getElementById('vital-lobby-view').classList.remove('hidden');
+    hideAllViews();
+    document.getElementById('vital-lobby-view').classList.remove('hidden');
     
     const vArea = document.getElementById('vital-selection-area');
     const sArea = document.getElementById('starter-deck-selection');
@@ -229,7 +259,7 @@ function selectVitalSlot(region, idx) {
     const vCard = MASTER_CARDS.find(c => c.id === playerState.currentVital);
     document.querySelectorAll('.vital-btn').forEach(btn => {
         if (btn.id === `vs-${region}-${idx}`) {
-            btn.classList.add('border-amber-400'); btn.innerHTML = `<img src="${vCard.image}" class="w-full h-full object-cover rounded opacity-80" onerror="this.src='GoldBurnLogo (1).png'">`;
+            btn.classList.add('border-amber-400'); btn.innerHTML = `<img src="${vCard ? vCard.image : 'GoldBurnLogo (1).png'}" class="w-full h-full object-cover rounded opacity-80" onerror="this.src='GoldBurnLogo (1).png'">`;
         } else {
             btn.classList.remove('border-amber-400'); btn.innerHTML = btn.id.includes('Front') ? 'F'+(parseInt(btn.id.split('-')[2])+1) : 'B'+(parseInt(btn.id.split('-')[2])+1);
         }
@@ -260,7 +290,7 @@ function confirmLobbyStarter() {
     if(!val) return alert("Select a deck.");
     let tV = null; let tD = {};
     for(const [id, count] of Object.entries(STARTER_DECKS[val])) {
-        const c = MASTER_CARDS.find(x=>x.id===id); if(c.type==='Vital') tV=id; else tD[id]=count;
+        const c = MASTER_CARDS.find(x=>x.id===id); if(c && c.type==='Vital') tV=id; else tD[id]=count;
     }
     playerState.currentVital = tV; loadDeckIntoGameState(tD, tV);
     document.getElementById('starter-deck-selection').classList.add('hidden');
@@ -275,11 +305,11 @@ function loadDeckIntoGameState(deckToLoad = playerState.currentDeck, vitalToLoad
     }
     const vCard = MASTER_CARDS.find(c => c.id === vitalToLoad);
     if(vCard) gameState.deck.push({...vCard, instanceId: Math.random().toString(36).substr(2,9), currentHp: vCard.hp, markers: {}, exhausted: false});
-    if(!gameState.players[getPlayerId()]) gameState.players[getPlayerId()] = {front:[null,null,null], back:[null,null,null], center:[null,null,null], gy:[], void:[], gold:0};
+    if(!gameState.players[getPlayerId()]) gameState.players[getPlayerId()] = {front:[null,null,null], back:[null,null,null], center:[null,null,null], gy:[], void:[], gold:0, handCache:[]};
 }
 
 function enterMatch() {
-    document.getElementById('vital-lobby-view').classList.add('hidden'); document.getElementById('pre-lobby-view').classList.add('hidden');
+    hideAllViews();
     document.getElementById('game-view').classList.remove('hidden');
     
     gameState.phase = 'PLAYING';
@@ -289,7 +319,14 @@ function enterMatch() {
     if(currentRoomId === "SANDBOX") {
         gameState.turnOrder = [getPlayerId()]; gameState.activeTurnUid = getPlayerId();
         gameState.players[getPlayerId()].gold = 3;
+    } else {
+        if(gameState.activeTurnUid === getPlayerId()) {
+            gameState.players[getPlayerId()].gold = 3;
+        } else {
+            gameState.players[getPlayerId()].gold = 0;
+        }
     }
+    
     logAction("Match started. Drew 5 cards.");
     startMatchTimer(); renderVTT(); broadcastState();
 }
@@ -304,12 +341,7 @@ function listenToRoom() {
         gameState.rules = data.rules || {};
         gameState.turnOrder = data.turnOrder || [];
         gameState.activeTurnUid = data.activeTurnUid;
-        
-        // Host Disconnect Timeout Reset
-        if(gameState.isHost) db.collection('rooms').doc(currentRoomId).update({ lastPing: Date.now() });
-        else {
-            if(data.lastPing && Date.now() - data.lastPing > 30000) { alert("Host disconnected. Lobby tie."); executeLeaveMatch(); return; }
-        }
+        if (data.lastPing) gameState.lastKnownPing = data.lastPing;
 
         if(data.status === 'CLOSED') { alert("Room closed."); executeLeaveMatch(); return; }
 
@@ -331,7 +363,7 @@ function listenToRoom() {
             if (gameState.isHost && data.turnOrder.length === 0) {
                 let tOrder = Object.keys(data.players);
                 tOrder.sort(() => Math.random() - 0.5);
-                const updates = { turnOrder: tOrder, activeTurnUid: tOrder[0], status: 'PLAYING', [`players.${tOrder[0]}.gold`]: 3 };
+                const updates = { turnOrder: tOrder, activeTurnUid: tOrder[0], status: 'PLAYING' };
                 db.collection('rooms').doc(currentRoomId).update(updates);
             }
         }
@@ -369,7 +401,7 @@ function listenToRoom() {
                 db.collection('players').doc(playerState.uid).update({ accountGold: playerState.accountGold });
                 updateUI();
             } else if (data.winnerUid === getPlayerId()) alert("WINNER!");
-            else alert("DEFEATED!");
+            else alert("DEFEATED! Winner was decided.");
             executeLeaveMatch();
         }
     });
@@ -378,6 +410,7 @@ function listenToRoom() {
 function broadcastState() {
     if (currentRoomId === "SANDBOX" || !currentRoomId || !gameState.players[getPlayerId()]) return;
     gameState.players[getPlayerId()].deckCount = gameState.deck.length;
+    gameState.players[getPlayerId()].handCache = gameState.hand; 
     const pData = JSON.parse(JSON.stringify(gameState.players[getPlayerId()]));
     db.collection('rooms').doc(currentRoomId).update({ [`players.${getPlayerId()}`]: pData }).catch(e=>console.error(e));
 }
@@ -392,6 +425,15 @@ function startMatchTimer() {
     }, 1000);
 }
 
+function cancelModes(e) {
+    if(!gameState.targetMode && !gameState.moveMode) return;
+    const ign = ['ins-board-actions', 'btn-play', 'btn-end-turn'];
+    if(e && ign.some(id => e.target.closest(`#${id}`))) return;
+    if(gameState.targetMode) { gameState.targetMode = false; logAction("Targeting cancelled."); renderVTT(); }
+    if(gameState.moveMode) { gameState.moveMode = false; logAction("Move cancelled."); renderVTT(); }
+}
+document.addEventListener('keydown', (e) => { if(e.key === 'Escape') cancelModes(null); });
+
 // --- RENDERING ---
 function renderVTT() {
     const myUid = getPlayerId();
@@ -401,9 +443,17 @@ function renderVTT() {
     if(myP.spectator) {
         document.getElementById('player-hand-container').classList.add('hidden');
         document.getElementById('btn-end-turn').classList.add('hidden');
-        document.getElementById('player-front-row').parentElement.classList.add('hidden');
+        const pf = document.getElementById('player-front-row');
+        if(pf) pf.parentElement.classList.add('hidden');
         document.getElementById('spectator-ui').classList.remove('hidden');
         renderSpectatorCheckboxes();
+    }
+
+    const isMyTurn = gameState.activeTurnUid === myUid || currentRoomId === "SANDBOX";
+    const endTurnBtn = document.getElementById('btn-end-turn');
+    if(endTurnBtn && !myP.spectator) {
+        if(isMyTurn) { endTurnBtn.classList.replace('bg-stone-800', 'bg-amber-600'); endTurnBtn.classList.replace('text-stone-500', 'text-stone-950'); endTurnBtn.disabled = false; } 
+        else { endTurnBtn.classList.replace('bg-amber-600', 'bg-stone-800'); endTurnBtn.classList.replace('text-stone-950', 'text-stone-500'); endTurnBtn.disabled = true; }
     }
 
     document.getElementById('deck-count-hud').textContent = gameState.deck.length;
@@ -423,8 +473,9 @@ function renderVTT() {
         gameState.hand.forEach((card, idx) => {
             const div = document.createElement('div');
             div.className = `w-[110px] h-[155px] flex-shrink-0 cursor-pointer rounded-md overflow-hidden border-2 transition ${selectedHandIndex === idx ? 'border-amber-400 scale-105 z-20' : 'border-stone-800'}`;
-            div.innerHTML = `<img src="${card.image}" class="card-img-full bg-stone-900 p-1">`;
-            div.onclick = () => {
+            div.innerHTML = `<img src="${card.image}" class="card-img-full bg-stone-900 p-1" onerror="this.src='GoldBurnLogo (1).png'">`;
+            div.onclick = (e) => {
+                e.stopPropagation();
                 if(gameState.activeTurnUid !== myUid && currentRoomId !== "SANDBOX") return;
                 selectedHandIndex = selectedHandIndex === idx ? null : idx;
                 activeInsSlot = null; gameState.moveMode = false; gameState.targetMode = false;
@@ -439,9 +490,11 @@ function renderVTT() {
     Object.entries(gameState.players).forEach(([uid, p]) => {
         if (uid === myUid || p.spectator) return;
         let shouldRenderHandOverlay = '';
-        const cb = document.getElementById(`spec-chk-${uid}`);
-        if(cb && cb.checked && p.handCache) {
-            shouldRenderHandOverlay = `<div class="absolute inset-0 bg-black/80 flex items-center justify-center text-xs text-amber-500 font-bold z-20">Viewing Hand (Simulated)</div>`;
+        if(gameState.spectatorVision[uid] && p.handCache && p.handCache.length > 0) {
+            let hH = `<div class="absolute inset-0 bg-black/90 z-30 flex items-center justify-center p-2 gap-1 overflow-x-auto rounded-xl">`;
+            p.handCache.forEach(c => hH += `<img src="${c.image}" class="h-full object-contain border border-amber-500 rounded" onerror="this.src='GoldBurnLogo (1).png'">`);
+            hH += `</div>`;
+            shouldRenderHandOverlay = hH;
         }
 
         const oppHtml = `
@@ -458,8 +511,8 @@ function renderVTT() {
                         </div>
                     </div>
                     <div class="flex flex-col gap-2 justify-center">
-                        <div class="w-12 h-16 bg-[#050505] border border-purple-900/50 rounded flex items-center justify-center text-[8px] text-purple-700">V [${p.void.length}]</div>
-                        <div class="w-12 h-16 bg-stone-950 border border-stone-800 rounded flex items-center justify-center text-[8px] text-stone-500">GY [${p.gy.length}]</div>
+                        <div class="w-12 h-16 bg-[#050505] border border-purple-900/50 rounded flex items-center justify-center text-[8px] text-purple-700">V [${p.void?p.void.length:0}]</div>
+                        <div class="w-12 h-16 bg-stone-950 border border-stone-800 rounded flex items-center justify-center text-[8px] text-stone-500">GY [${p.gy?p.gy.length:0}]</div>
                     </div>
                 </div>
             </div>`;
@@ -491,17 +544,18 @@ function renderVTT() {
 
     ['gy','void'].forEach(z => {
         const el = document.getElementById(`${z}-visual`); if(!el) return;
-        el.innerHTML = myP[z].length > 0 ? `<img src="${myP[z][myP[z].length-1].image}" class="absolute inset-0 w-full h-full object-cover opacity-60"><span class="z-10 bg-black/80 px-2 rounded">${z.toUpperCase()} [${myP[z].length}]</span>` : `<span class="z-10 bg-black/80 px-2 rounded">${z.toUpperCase()} [0]</span>`;
+        const arr = myP[z] || [];
+        el.innerHTML = arr.length > 0 ? `<img src="${arr[arr.length-1].image}" class="absolute inset-0 w-full h-full object-cover opacity-60" onerror="this.src='GoldBurnLogo (1).png'"><span class="z-10 bg-black/80 px-2 rounded">${z.toUpperCase()} [${arr.length}]</span>` : `<span class="z-10 bg-black/80 px-2 rounded">${z.toUpperCase()} [0]</span>`;
     });
 }
 
 function renderSlotHtml(card, uid, region, idx, isOpp, isCenter=false, htmlIdPrefix='') {
-    const sId = isCenter ? `${htmlIdPrefix}-${idx}` : (isOpp ? `${uid}-${region}-${idx}` : `player${region==='front'?'Front':'Back'}-${idx}`);
+    const sId = isCenter ? `center-${idx}` : (isOpp ? `${uid}-${region}-${idx}` : `player${region==='front'?'Front':'Back'}-${idx}`);
     if (card) {
         let mh = ''; for(let [c, a] of Object.entries(card.markers||{})) { if(a>0) mh += `<div class="marker-dot bg-${c==='black'?'stone-800':c+'-500'}">${a}</div>`; }
         const sel = activeInsSlot && activeInsSlot.region === (isCenter?htmlIdPrefix:region) && activeInsSlot.index === idx;
-        return `<div id="${sId}" onclick="inspectFromBoard('${uid}','${region}',${idx},${isOpp},'${htmlIdPrefix}')" class="board-slot bg-stone-900 border-2 ${sel?'border-amber-400 scale-[1.02] shadow-xl z-10':(isOpp?'border-red-900/50':'border-amber-600/50')} rounded overflow-hidden cursor-pointer">
-            <img src="${card.image}" class="card-img-full bg-black ${card.exhausted?'opacity-50':''}">
+        return `<div id="${sId}" onclick="event.stopPropagation(); inspectFromBoard('${uid}','${region}',${idx},${isOpp},'${htmlIdPrefix}')" class="board-slot bg-stone-900 border-2 ${sel?'border-amber-400 scale-[1.02] shadow-xl z-10':(isOpp?'border-red-900/50':'border-amber-600/50')} rounded overflow-hidden cursor-pointer">
+            <img src="${card.image}" class="card-img-full bg-black ${card.exhausted?'opacity-50':''}" onerror="this.src='GoldBurnLogo (1).png'">
             ${card.exhausted ? `<div class="zzz-overlay bg-black/80 px-1 rounded text-[10px]">USED</div>` : ''}
             ${card.currentHp!==undefined ? `<div class="hp-badge">${card.currentHp}</div>` : ''}
             <div class="marker-container">${mh}</div>
@@ -509,7 +563,7 @@ function renderSlotHtml(card, uid, region, idx, isOpp, isCenter=false, htmlIdPre
     } else {
         const mt = gameState.moveMode && !isOpp && (!isCenter || idx!==0);
         let txt = 'EMPTY'; if(isCenter) txt = idx===1?'SHARED':(idx===0?'OPP ACT':'YOUR ACT');
-        return `<div id="${sId}" onclick="handleEmptySlotClick('${isCenter?htmlIdPrefix:(region==='front'?'playerFront':'playerBack')}', ${idx})" class="board-slot bg-stone-800/20 border-2 border-stone-700 rounded flex items-center justify-center text-[10px] text-stone-500 font-bold ${mt?'move-target':''}">
+        return `<div id="${sId}" onclick="event.stopPropagation(); handleEmptySlotClick('${isCenter?htmlIdPrefix:(region==='front'?'playerFront':'playerBack')}', ${idx})" class="board-slot bg-stone-800/20 border-2 border-stone-700 rounded flex items-center justify-center text-[10px] text-stone-500 font-bold ${mt?'move-target':''}">
             ${txt}
         </div>`;
     }
@@ -518,12 +572,19 @@ function renderSlotHtml(card, uid, region, idx, isOpp, isCenter=false, htmlIdPre
 function renderSpectatorCheckboxes() {
     const cont = document.getElementById('spectator-checkboxes'); cont.innerHTML = '';
     Object.entries(gameState.players).forEach(([uid, p]) => {
-        if(!p.spectator && uid !== getPlayerId()) cont.innerHTML += `<label><input type="checkbox" id="spec-chk-${uid}" onchange="renderVTT()"> ${p.name}</label>`;
+        if(!p.spectator && uid !== getPlayerId()) {
+            const chk = gameState.spectatorVision[uid] ? 'checked' : '';
+            cont.innerHTML += `<label><input type="checkbox" onchange="toggleSpecVision('${uid}', this.checked)" ${chk}> ${p.name}</label>`;
+        }
     });
 }
+function toggleSpecVision(uid, checked) { gameState.spectatorVision[uid] = checked; renderVTT(); }
 
 function inspectFromBoard(uid, region, idx, isOpp, centerPrefix) {
-    if (gameState.targetMode) return finishTargeting(`${uid}-${region}-${idx}`);
+    if (gameState.targetMode) {
+        const tId = centerPrefix ? `center-${idx}` : (isOpp ? `${uid}-${region}-${idx}` : `player${region==='front'?'Front':'Back'}-${idx}`);
+        return finishTargeting(tId);
+    }
     if (gameState.moveMode) return;
     
     selectedHandIndex = null;
@@ -538,7 +599,10 @@ function handleEmptySlotClick(region, index) {
     if(gameState.activeTurnUid !== getPlayerId() && currentRoomId !== "SANDBOX") return;
     
     if (gameState.moveMode) return finishMoving(region, index);
-    if (gameState.targetMode) return finishTargeting(`empty-${region}-${index}`);
+    if (gameState.targetMode) {
+        const tId = (region === 'center') ? `center-${index}` : `player${region === 'playerFront' ? 'Front' : 'Back'}-${index}`;
+        return finishTargeting(tId);
+    }
 
     if (selectedHandIndex !== null) {
         const card = gameState.hand[selectedHandIndex];
@@ -627,6 +691,27 @@ function drawCard() {
 function editMatchGold(dir) {
     const p = gameState.players[getPlayerId()]; p.gold = Math.max(0, p.gold+dir); logAction(`Gold ${p.gold}`); renderVTT(); broadcastState();
 }
+
+function processPlayerElimination() {
+    const myUid = getPlayerId();
+    alert("You have conceded or reached 0 HP. You are now spectating.");
+    gameState.players[myUid].spectator = true;
+    gameState.players[myUid].front = [null,null,null]; gameState.players[myUid].back = [null,null,null]; gameState.players[myUid].center = [null,null,null];
+    gameState.players[myUid].gy = []; gameState.players[myUid].void = []; gameState.players[myUid].gold = 0; gameState.players[myUid].handCache = [];
+    gameState.hand = [];
+    
+    gameState.turnOrder = gameState.turnOrder.filter(u => u !== myUid);
+    if(gameState.activeTurnUid === myUid) gameState.activeTurnUid = gameState.turnOrder[0] || null;
+    
+    if(gameState.turnOrder.length <= 1 && currentRoomId !== "SANDBOX") {
+        db.collection('rooms').doc(currentRoomId).update({ status: 'FINISHED', winnerUid: gameState.turnOrder[0] });
+    } else if (currentRoomId !== "SANDBOX") {
+        db.collection('rooms').doc(currentRoomId).update({ turnOrder: gameState.turnOrder, activeTurnUid: gameState.activeTurnUid });
+        broadcastState();
+    }
+    renderVTT();
+}
+
 function editCardHP(dir) {
     if(!activeInsSlot) return;
     const card = gameState.players[getPlayerId()][activeInsSlot.dbRegion][activeInsSlot.index];
@@ -634,21 +719,10 @@ function editCardHP(dir) {
     logAction(`HP to ${card.currentHp}`);
     
     if(card.type === 'Vital' && card.currentHp <= 0) {
-        if(Object.keys(gameState.players).length > 2) {
-            alert("Your vital reached 0 HP. You are now spectating.");
-            gameState.players[getPlayerId()].spectator = true;
-            gameState.players[getPlayerId()].front = [null,null,null]; gameState.players[getPlayerId()].back = [null,null,null];
-            gameState.turnOrder = gameState.turnOrder.filter(u=>u!==getPlayerId());
-            if(gameState.activeTurnUid === getPlayerId()) gameState.activeTurnUid = gameState.turnOrder[0];
-            
-            if(gameState.turnOrder.length === 1 && currentRoomId !== "SANDBOX") {
-                db.collection('rooms').doc(currentRoomId).update({ status: 'FINISHED', winnerUid: gameState.turnOrder[0] });
-            }
-        } else if(currentRoomId && currentRoomId !== "SANDBOX") {
-             db.collection('rooms').doc(currentRoomId).update({ status: 'FINISHED', winnerUid: Object.keys(gameState.players).find(u=>u!==getPlayerId()) });
-        }
+        processPlayerElimination();
+    } else {
+        renderVTT(); broadcastState();
     }
-    renderVTT(); broadcastState();
 }
 function editMarker(c, d) {
     const card = gameState.players[getPlayerId()][activeInsSlot.dbRegion][activeInsSlot.index];
@@ -674,7 +748,15 @@ function createToken() {
 }
 
 // Targeting Sync
-function startTargeting() { gameState.targetMode = true; gameState.targetSource = activeInsSlot; logAction("Select target..."); }
+function startTargeting(e) { 
+    if(e) e.stopPropagation();
+    if(activeInsSlot.region === 'hand') return alert("Play to the board first to target.");
+    gameState.targetMode = true; gameState.targetSource = activeInsSlot; logAction("Select target..."); 
+}
+function startMoving(e) {
+    if(e) e.stopPropagation();
+    gameState.moveMode = true; gameState.moveSource = activeInsSlot; logAction("Select empty slot...");
+}
 function finishTargeting(targetDomId) {
     gameState.targetMode = false;
     const s = gameState.targetSource;
@@ -752,26 +834,27 @@ function openZoneModal(z) {
     const arr = gameState.players[getPlayerId()][z]; if(!arr || arr.length===0) return;
     document.getElementById('zone-modal-title').textContent = z;
     const g = document.getElementById('zone-grid'); g.innerHTML = '';
-    arr.forEach((c,i) => g.innerHTML += `<div onclick="inspectZoneCard('${z}',${i})" class="bg-stone-900 border border-stone-700 cursor-pointer p-1"><img src="${c.image}" class="w-full"></div>`);
+    arr.forEach((c,i) => g.innerHTML += `<div onclick="inspectZoneCard('${z}',${i})" class="bg-stone-900 border border-stone-700 cursor-pointer p-1"><img src="${c.image}" class="w-full" onerror="this.src='GoldBurnLogo (1).png'"></div>`);
     document.getElementById('zone-modal').classList.remove('hidden');
 }
 function inspectZoneCard(z,i) { document.getElementById('zone-modal').classList.add('hidden'); activeInsSlot = { dbRegion: z, index: i }; inspectCard(gameState.players[getPlayerId()][z][i], z, i); }
 function peerIntoDeck() {
     const g = document.getElementById('peer-grid'); g.innerHTML = '';
-    [...gameState.deck].sort((a,b)=>a.name.localeCompare(b.name)).forEach(c => g.innerHTML += `<div class="bg-stone-900 border border-stone-700 p-1"><img src="${c.image}" class="w-full"></div>`);
+    [...gameState.deck].sort((a,b)=>a.name.localeCompare(b.name)).forEach(c => g.innerHTML += `<div class="bg-stone-900 border border-stone-700 p-1"><img src="${c.image}" class="w-full" onerror="this.src='GoldBurnLogo (1).png'"></div>`);
     document.getElementById('peer-modal').classList.remove('hidden'); logAction("Peered deck.");
 }
 
 function leaveMatch() {
     if(gameState.phase === 'PLAYING' && currentRoomId && currentRoomId !== "SANDBOX") {
-        if(confirm("Concede match?")) db.collection('rooms').doc(currentRoomId).update({ status: 'FINISHED', winnerUid: Object.keys(gameState.players).find(u=>u!==getPlayerId()) });
+        if(confirm("Concede match?")) processPlayerElimination();
     } else executeLeaveMatch();
 }
 function executeLeaveMatch() {
     if(currentRoomId && currentRoomId !== "SANDBOX" && gameState.isHost) db.collection('rooms').doc(currentRoomId).update({ status: 'CLOSED' }).catch(()=>{});
     gameState.phase = 'LOBBY'; if(roomUnsubscribe) { roomUnsubscribe(); roomUnsubscribe=null; } currentRoomId=null;
-    clearInterval(matchTimerInterval);
-    document.getElementById('game-view').classList.add('hidden'); document.getElementById('vital-lobby-view').classList.add('hidden'); document.getElementById('pre-lobby-view').classList.add('hidden');
+    clearInterval(matchTimerInterval); clearInterval(hostPingInterval);
+    hideAllViews();
+    document.getElementById('lobby-view').classList.remove('hidden');
     switchTab('play'); loadLocalDeck();
 }
 
@@ -801,7 +884,9 @@ function toggleSubtypeDropdown() { document.getElementById('subtype-dropdown-pan
 
 let selectedFilterTypes = new Set();
 function filterCollection() {
-    const qName = document.getElementById('card-search-name').value.toLowerCase();
+    const nameEl = document.getElementById('card-search-name');
+    if(!nameEl) return;
+    const qName = nameEl.value.toLowerCase();
     const qDesc = document.getElementById('card-search-desc').value.toLowerCase();
     const cost = document.getElementById('filter-cost').value;
     const setFilter = document.getElementById('filter-set').value;
@@ -881,6 +966,7 @@ function handleSubtype(cb) {
 
 function showCardDetails(id) {
     const card = MASTER_CARDS.find(c => c.id === id);
+    if(!card) return;
     document.getElementById('cd-img').src = card.image || 'GoldBurnLogo (1).png';
     document.getElementById('cd-name').textContent = card.name;
     document.getElementById('cd-stats').textContent = `Cost: ${card.cost||0} | HP: ${card.hp||'-'} | Set: ${card.set||'Core'} | ${card.type} - ${card.subtypes ? card.subtypes.join(', ') : ''}`;
@@ -891,6 +977,7 @@ function closeCardDetails(e) { if(e && e.target.id === 'card-details-modal') doc
 
 function addCardToDeck(id) {
     const card = MASTER_CARDS.find(c => c.id === id);
+    if(!card) return;
     if (card.type === 'Vital') {
         playerState.currentVital = id;
     } else {
@@ -928,6 +1015,7 @@ function renderDeckList() {
     let total = 0;
     for (const [id, count] of Object.entries(playerState.currentDeck)) {
         const c = MASTER_CARDS.find(card => card.id === id);
+        if(!c) continue;
         total += count;
         const el = document.createElement('div');
         el.className = "flex justify-between items-center text-xs border-b border-stone-800 py-1.5";
@@ -938,9 +1026,11 @@ function renderDeckList() {
     document.getElementById('deck-name-input').value = playerState.activeDeckName;
 
     const saved = document.getElementById('saved-decks-select');
-    saved.innerHTML = `<option value="">-- Load Saved Deck --</option>`;
-    for (const d of Object.keys(playerState.customDecks)) {
-        saved.innerHTML += `<option value="${d}" ${playerState.activeDeckName === d ? 'selected' : ''}>${d}</option>`;
+    if(saved) {
+        saved.innerHTML = `<option value="">-- Load Saved Deck --</option>`;
+        for (const d of Object.keys(playerState.customDecks)) {
+            saved.innerHTML += `<option value="${d}" ${playerState.activeDeckName === d ? 'selected' : ''}>${d}</option>`;
+        }
     }
 }
 
@@ -982,7 +1072,8 @@ function equipStarterDeck() {
         playerState.currentDeck = {};
         for (const [id, count] of Object.entries(STARTER_DECKS[val])) {
             const card = MASTER_CARDS.find(c => c.id === id);
-            if (card.type === 'Vital') playerState.currentVital = id; else playerState.currentDeck[id] = count;
+            if (card && card.type === 'Vital') playerState.currentVital = id; 
+            else playerState.currentDeck[id] = count;
         }
         playerState.activeDeckName = val;
         saveLocalDeck(); renderDeckList(); alert(`Equipped ${val}`);
@@ -1028,6 +1119,9 @@ function renderStoreAndInventory() {
     });
 }
 
-function updateUI() { document.getElementById('account-gold-display').textContent = playerState.accountGold; }
+function updateUI() { 
+    const el = document.getElementById('account-gold-display');
+    if(el) el.textContent = playerState.accountGold; 
+}
 function testDeckInSandbox(){ currentRoomId="SANDBOX"; showVitalLobby('sandbox'); }
 window.onload = () => { loadLocalDeck(); updateUI(); filterCollection(); renderDeckList(); renderStoreAndInventory(); };
