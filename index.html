@@ -109,16 +109,83 @@
                 </div>
             </div>
 
-            <!-- FORGE, STORE (Omitted contents for brevity, logic identical) -->
+            <!-- FORGE TAB -->
             <div id="tab-forge" class="tab-content hidden flex-1 p-4 overflow-hidden flex flex-col max-w-7xl mx-auto w-full">
-                <!-- Exact same forge content -->
-                 <div class="flex justify-between items-center mb-3 flex-shrink-0">
+                <div class="flex justify-between items-center mb-3 flex-shrink-0">
                     <h2 class="text-xl font-bold text-amber-400 font-serif">Forge & Deck Manager</h2>
-                    <button onclick="testDeckInSandbox()" class="bg-emerald-600 hover:bg-emerald-500 text-stone-950 font-bold px-4 py-2 rounded text-xs shadow border border-emerald-400 transition">Test Deck in Sandbox</button>
+                    <button onclick="testDeckInSandbox()" class="bg-emerald-600 hover:bg-emerald-500 text-stone-950 font-bold px-4 py-2 rounded text-xs shadow border border-emerald-400 transition">Test Deck in Sandbox Mode</button>
                 </div>
-                <!-- Includes standard forge structure from previous code -->
+                <div class="builder-container grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
+                    <div class="collection-pane lg:col-span-2 bg-stone-900 border border-stone-800 rounded-lg p-3 flex flex-col h-full overflow-hidden shadow-xl">
+                        <div class="mb-3 bg-stone-950 p-3 rounded-lg border border-stone-800 flex-shrink-0 flex flex-col gap-2 text-xs">
+                            <div class="grid grid-cols-1 md:grid-cols-5 gap-2">
+                                <input type="text" id="card-search-name" placeholder="Search name..." class="col-span-1 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded" oninput="filterCollection()">
+                                <input type="text" id="card-search-desc" placeholder="Search description..." class="col-span-1 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded" oninput="filterCollection()">
+                                <select id="filter-cost" class="col-span-1 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded" onchange="filterCollection()">
+                                    <option value="all">All Costs</option><option value="<3">Cost: &lt; 3</option><option value="3">Cost: 3</option><option value=">3">Cost: &gt; 3</option><option value="special">Other (Zone/Act)</option>
+                                </select>
+                                <select id="filter-set" class="col-span-1 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded" onchange="filterCollection()">
+                                    <option value="all">All Sets</option>
+                                    <option value="A. Starter Deck Bandits Arrival">Bandits Arrival</option>
+                                    <option value="B. Starter Deck Devout Patronage">Devout Patronage</option>
+                                    <option value="M. Dice World">M. Dice World</option>
+                                </select>
+                                <select id="sort-by" class="col-span-1 p-2 bg-stone-950 text-amber-400 border border-amber-600/50 rounded font-bold" onchange="filterCollection()">
+                                    <option value="name">Sort: Name</option><option value="type">Sort: Type</option><option value="set">Sort: Set</option><option value="cost">Sort: Cost</option>
+                                </select>
+                            </div>
+                            <div class="flex gap-2 relative">
+                                <button onclick="toggleSubtypeDropdown()" type="button" class="flex-1 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded text-left flex justify-between items-center text-xs">
+                                    <span id="subtype-dropdown-label">Types & Subtypes (All)</span><span class="text-amber-400">V</span>
+                                </button>
+                                <select id="filter-speed" class="w-1/4 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded" onchange="filterCollection()">
+                                    <option value="all">All Speeds</option><option value="Fast">Fast Act</option><option value="Slow">Slow Act</option>
+                                </select>
+                                <div id="subtype-dropdown-panel" class="hidden absolute z-50 top-full left-0 mt-1 w-full bg-stone-950 border border-stone-700 rounded p-4 shadow-2xl max-h-72 overflow-y-auto space-y-2"></div>
+                            </div>
+                        </div>
+                        <div id="collection-grid" class="grid grid-cols-2 lg:grid-cols-4 gap-3 overflow-y-auto flex-1 pr-1 min-h-0"></div>
+                    </div>
+                    
+                    <div class="deck-pane bg-stone-900 border border-stone-800 rounded-lg p-3 flex flex-col h-full overflow-hidden shadow-xl">
+                        <div class="mb-3 flex-shrink-0 space-y-2">
+                            <input type="text" id="deck-name-input" placeholder="Deck Name..." value="Custom Deck" class="w-full p-2 bg-stone-950 text-amber-400 font-bold border border-stone-700 rounded text-xs">
+                            <div class="flex gap-1">
+                                <select id="saved-decks-select" class="flex-1 p-2 bg-stone-950 text-stone-200 border border-stone-700 rounded text-xs"></select>
+                                <button onclick="loadSelectedDeck()" class="bg-stone-800 hover:bg-stone-700 text-stone-200 px-3 py-1 rounded text-xs font-bold border border-stone-600">Load</button>
+                                <button onclick="deleteSelectedDeck()" class="bg-red-950 hover:bg-red-900 text-red-300 px-3 py-1 rounded text-xs font-bold border border-red-800">Del</button>
+                            </div>
+                            <div class="flex gap-1">
+                                <select id="equip-starter-select" class="flex-1 p-2 bg-stone-950 text-amber-400 border border-stone-700 rounded text-xs font-bold">
+                                    <option value="">-- Equip Starter Deck --</option>
+                                    <option value="Bandits Arrival Starter">Bandits Arrival Starter</option>
+                                    <option value="Devout Patronage Starter">Devout Patronage Starter</option>
+                                </select>
+                                <button onclick="equipStarterDeck()" class="bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold px-3 py-1 rounded text-xs">Equip</button>
+                            </div>
+                            <div class="flex gap-1">
+                                <button onclick="saveCurrentDeck()" class="flex-1 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-1.5 rounded text-xs transition">Save Deck</button>
+                                <button onclick="exportDeckCode()" class="bg-stone-800 hover:bg-stone-700 text-amber-400 font-bold py-1.5 px-3 rounded text-xs border border-stone-600">Share</button>
+                                <button onclick="importDeckCode()" class="bg-stone-800 hover:bg-stone-700 text-stone-300 font-bold py-1.5 px-3 rounded text-xs border border-stone-600">Import</button>
+                            </div>
+                        </div>
+
+                        <div class="space-y-2 mb-2 flex-shrink-0 text-xs">
+                            <div class="bg-stone-950 border border-amber-500 p-2 rounded flex justify-between items-center">
+                                <div><span class="text-amber-400 font-bold">Vital:</span> <span id="vital-card-display" class="text-stone-300 ml-1">None</span></div>
+                                <button onclick="removeVitalCard()" class="text-[10px] bg-red-900/50 hover:bg-red-800 text-red-200 px-2 py-1 rounded border border-red-800 transition">Clear</button>
+                            </div>
+                            <div class="flex justify-between items-center text-stone-400 px-1 border-b border-stone-800 pb-1">
+                                <span>Main Deck (Max 30):</span>
+                                <span id="deck-count" class="text-amber-400 font-bold">0 / 30</span>
+                            </div>
+                        </div>
+                        <div id="deck-list" class="flex-1 overflow-y-auto space-y-1 pr-1 min-h-0"></div>
+                    </div>
+                </div>
             </div>
 
+            <!-- STORE TAB -->
             <div id="tab-store" class="tab-content hidden flex-1 p-6 overflow-y-auto w-full space-y-6 max-w-4xl mx-auto">
                 <h2 class="text-2xl font-bold text-amber-400 font-serif mb-4">Account Store</h2>
                 <div id="store-items-container" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
@@ -128,7 +195,7 @@
                 </div>
             </div>
 
-            <!-- NEW: ADMIN TAB -->
+            <!-- ADMIN TAB -->
             <div id="tab-admin" class="tab-content hidden flex-1 p-6 overflow-y-auto max-w-5xl mx-auto w-full space-y-4">
                 <h2 class="text-2xl font-bold text-red-500 font-serif mb-2 uppercase">Master Player List</h2>
                 <input type="text" id="admin-search" placeholder="Search by name or email..." class="w-full p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded text-sm mb-4" oninput="filterAdminList()">
@@ -287,10 +354,10 @@
                 <h2 class="text-amber-400 font-bold text-lg uppercase">Inspector</h2>
                 <button id="btn-end-turn" onclick="endTurn()" class="bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold px-3 py-1 rounded text-xs">End Turn</button>
             </div>
-            <div class="w-full h-[320px] bg-[#0c0a09] border-2 border-stone-800 rounded flex justify-center mb-4 p-1 relative">
+            <div onclick="enlargeImage()" class="w-full h-[320px] bg-[#0c0a09] border-2 border-stone-800 rounded flex justify-center mb-4 p-1 relative cursor-pointer hover:border-amber-500 transition">
                 <img id="ins-img" src="GoldBurnLogo (1).png" class="w-full h-full object-contain">
             </div>
-            <div class="bg-stone-900 border border-stone-800 rounded p-3 mb-2">
+            <div class="bg-stone-900 border border-stone-800 rounded p-3 mb-2 flex-1 min-h-0 overflow-y-auto">
                 <h3 id="ins-name" class="text-lg font-bold text-stone-100 truncate">Select a Card</h3>
                 <p id="ins-stats" class="text-amber-400 text-[10px] font-bold mb-2 pb-1 border-b border-stone-800">Type | Subtype</p>
                 <div id="ins-desc" class="text-xs text-stone-300 whitespace-pre-wrap"></div>
@@ -317,7 +384,7 @@
         </div>
     </div>
 
-    <!-- Modals omitted for brevity, logic identical. Include simple divs for zone-modal, peer-modal below -->
+    <!-- MODALS -->
     <div id="zone-modal" class="hidden absolute inset-0 bg-black/95 z-50 flex flex-col p-10" onclick="if(event.target.id==='zone-modal')this.classList.add('hidden')">
         <div class="flex justify-between text-amber-400 text-2xl font-bold mb-4"><span id="zone-modal-title">Zone</span><button onclick="document.getElementById('zone-modal').classList.add('hidden')">[X]</button></div>
         <div id="zone-grid" class="flex-1 overflow-y-auto grid grid-cols-6 gap-4"></div>
@@ -325,6 +392,26 @@
     <div id="peer-modal" class="hidden absolute inset-0 bg-black/95 z-50 flex flex-col p-10" onclick="if(event.target.id==='peer-modal') { this.classList.add('hidden'); broadcastState(); }">
         <div class="flex justify-between text-emerald-400 text-2xl font-bold mb-4"><span>Deck</span><button onclick="document.getElementById('peer-modal').classList.add('hidden'); broadcastState();">[X] Close & Shuffle</button></div>
         <div id="peer-grid" class="flex-1 overflow-y-auto grid grid-cols-6 gap-4"></div>
+    </div>
+    
+    <div id="card-details-modal" class="hidden absolute inset-0 bg-black/95 z-50 flex items-center justify-center p-6 backdrop-blur-md" onclick="closeCardDetails(event)">
+        <div class="bg-stone-900 border-2 border-amber-500 flex flex-col md:flex-row max-w-5xl w-full h-[80vh] rounded-xl overflow-hidden shadow-[0_0_40px_rgba(251,191,36,0.2)]" onclick="event.stopPropagation()">
+            <div class="md:w-1/2 bg-[#0c0a09] p-4 flex justify-center items-center border-r border-stone-800 relative">
+                <img id="cd-img" class="max-h-full max-w-full object-contain rounded-lg drop-shadow-2xl">
+            </div>
+            <div class="md:w-1/2 p-8 flex flex-col bg-stone-900 relative overflow-y-auto">
+                <h2 id="cd-name" class="text-4xl text-amber-400 font-serif font-bold mb-2 tracking-wide leading-tight">Name</h2>
+                <div id="cd-stats" class="text-stone-300 font-bold text-sm mb-6 border-b border-stone-700 pb-3 tracking-widest uppercase">Stats</div>
+                <div class="flex-1">
+                    <p id="cd-desc" class="text-stone-300 text-base leading-relaxed whitespace-pre-wrap font-serif"></p>
+                </div>
+                <button onclick="document.getElementById('card-details-modal').classList.add('hidden')" class="mt-6 w-full bg-stone-800 hover:bg-stone-700 text-stone-200 py-3 rounded font-bold shadow border border-stone-700 transition">Close Inspector</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="enlarge-modal" class="hidden absolute inset-0 bg-black/95 z-50 flex items-center justify-center p-10 backdrop-blur-md" onclick="this.classList.add('hidden')">
+        <img id="enlarged-img" src="" class="max-h-full max-w-full object-contain drop-shadow-2xl rounded-lg">
     </div>
 
     <script src="cards.js"></script>
