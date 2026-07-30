@@ -14,9 +14,8 @@ const db = firebase.firestore();
 const RANKS = ["Copper", "Iron", "Silver", "Emerald", "GOLDEN", "BURNING", "GOOBIS"];
 
 let playerState = { 
-    uid: null, email: null, displayName: "Guest Player", photoURL: "GoldBurnLogo (1).png", accountGold: 0, isAdmin: false, rank: "Copper", xp: 0,
+    uid: null, email: null, displayName: "Guest Player", photoURL: "GoldBurnLogo (1).png", accountGold: 0, isAdmin: false, rank: "Copper",
     unlockedCards: ['Bandits Arrival Starter'], customDecks: {}, activeDeckName: "Custom Deck", currentDeck: {}, currentVital: null,
-    matchHistory: [],
     tempSessionId: "guest_" + Math.random().toString(36).substr(2, 9)
 };
 
@@ -39,28 +38,12 @@ let matchTimerInterval = null; let matchSeconds = 0; let hostPingInterval = null
 
 const STORE_ITEMS = [
     { key: "Bandits Arrival Starter", name: "Bandits Arrival Starter", cost: 0, desc: "Foundational Bandits Arrival starter deck." },
-    { key: "Devout Patronage Starter", name: "Devout Patronage Starter", cost: 10, desc: "Complete Devout Patronage starter deck." },
-    { key: "Aurum Guild Starter", name: "Aurum Guild Starter", cost: 10, desc: "Complete Aurum Guild Starter deck." },
-    { key: "Dread Apocalypse Starter", name: "Dread Apocalypse Starter", cost: 10, desc: "Complete Dread Apocalypse Starter deck." },
-    
-    { key: "Season 0 Card List", name: "E. Season 0 Card List", cost: 15, desc: "Complete Season 0 Card List." },
-    { key: "Season 1 Card List", name: "F. Season 1 Card List", cost: 15, desc: "Complete Season 1 Card List." },
-    { key: "Season 2 Card List", name: "G. Season 2 Card List", cost: 15, desc: "Complete Season 2 Card List." },
-    
-    { key: "Dead Of Winter", name: "H. Dead Of Winter", cost: 20, desc: "Complete Dead Of Winter." },
-    { key: "Power Escalation", name: "I .Power Escalation", cost: 20, desc: "Complete Power Escalation." },
-    { key: "The Vox Populi", name: "J. The Vox Populi", cost: 20, desc: "Complete The Vox Populi." },
-    { key: "Blood Money", name: "K. Blood Money", cost: 20, desc: "Complete Blood Money." },
-    { key: "Crimson Onslaught", name: "L. Crimson Onslaught", cost: 20, desc: "Complete Crimson Onslaught." },
-    { key: "Dice World", name: "M. Dice World", cost: 20, desc: "Complete Dice World." },
-    
-    { key: "All Stars", name: "N. All Stars", cost: 20, desc: "Complete All Stars set." }
+    { key: "Devout Patronage Starter", name: "Devout Patronage Starter", cost: 20, desc: "Complete Devout Patronage starter deck." }
 ];
 
 // --- AUTH & SETUP ---
 auth.onAuthStateChanged(async (user) => {
     loadLocalDeck();
-    loadLocalHistory();
     if (user) {
         playerState.uid = user.uid; playerState.email = user.email;
         playerState.displayName = user.displayName; 
@@ -74,24 +57,22 @@ auth.onAuthStateChanged(async (user) => {
             const userRef = db.collection('players').doc(user.uid);
             const doc = await userRef.get();
             if(!doc.exists) {
-                const newProfile = { email: user.email, displayName: user.displayName, photoURL: playerState.photoURL, accountGold: 0, unlockedCards: ['Bandits Arrival Starter'], isAdmin: false, rank: "Copper", xp: 0, matchHistory: [] };
+                const newProfile = { email: user.email, displayName: user.displayName, photoURL: playerState.photoURL, accountGold: 0, unlockedCards: ['Bandits Arrival Starter'], isAdmin: false, rank: "Copper" };
                 await userRef.set(newProfile, { merge: true });
-                playerState.accountGold = 0; playerState.unlockedCards = ['Bandits Arrival Starter']; playerState.isAdmin = false; playerState.rank = "Copper"; playerState.xp = 0; playerState.matchHistory = [];
+                playerState.accountGold = 0; playerState.unlockedCards = ['Bandits Arrival Starter']; playerState.isAdmin = false; playerState.rank = "Copper";
             } else {
                 const data = doc.data();
                 playerState.accountGold = data.accountGold !== undefined ? data.accountGold : 0;
                 playerState.unlockedCards = data.unlockedCards || ['Bandits Arrival Starter'];
                 playerState.isAdmin = data.isAdmin || false;
                 playerState.rank = data.rank || "Copper";
-                playerState.xp = data.xp || 0;
-                playerState.matchHistory = data.matchHistory || [];
             }
             if(playerState.isAdmin) document.getElementById('btn-admin').classList.remove('hidden');
             updateUI(); filterCollection(); renderStoreAndInventory();
         } catch (error) { console.error("Firestore Error: ", error); }
     } else {
         playerState.unlockedCards = ['Bandits Arrival Starter'];
-        updateUI(); filterCollection(); renderStoreAndInventory(); renderDeckList();
+        filterCollection(); renderStoreAndInventory(); renderDeckList();
     }
 });
 
@@ -138,8 +119,9 @@ async function loadAdminBrowser() {
     filterAdminList();
 }
 function filterAdminList() {
-    const q = document.getElementById('admin-search').value.toLowerCase();
+    const q = document.getElementById('admin-search')?.value?.toLowerCase() || '';
     const list = document.getElementById('admin-player-list');
+    if(!list) return;
     list.innerHTML = '';
     allPlayersCache.filter(p => p.displayName?.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q)).forEach(p => {
         let cardsHtml = `<select id="rem-${p.id}" class="bg-stone-800 text-xs rounded p-1"><option value="">-- Remove Item --</option>`;
@@ -167,13 +149,13 @@ function filterAdminList() {
     });
 }
 async function adminSavePlayer(uid) {
-    const newGold = parseInt(document.getElementById(`gold-${uid}`).value) || 0;
-    const newRank = document.getElementById(`rank-${uid}`).value;
+    const newGold = parseInt(document.getElementById(`gold-${uid}`)?.value) || 0;
+    const newRank = document.getElementById(`rank-${uid}`)?.value || 'Copper';
     await db.collection('players').doc(uid).update({ accountGold: newGold, rank: newRank });
     alert("Player Profile Saved"); loadAdminBrowser();
 }
 async function adminRemoveItem(uid) {
-    const val = document.getElementById(`rem-${uid}`).value;
+    const val = document.getElementById(`rem-${uid}`)?.value;
     if(!val) return;
     await db.collection('players').doc(uid).update({ unlockedCards: firebase.firestore.FieldValue.arrayRemove(val) });
     alert("Item Removed"); loadAdminBrowser();
@@ -182,10 +164,11 @@ async function adminRemoveItem(uid) {
 // --- MATCHMAKING & PRE-LOBBY ---
 let activeQueueUnsub = null;
 async function queueMatch(mode) {
-    if(!playerState.uid && mode !== 'custom' && mode !== 'quickplay') return alert("Guests can only play Custom and Quickplay matches!");
+    if(!playerState.uid) return alert("Guests can only play Custom matches!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Deck Manager first!");
     
     const btn = document.getElementById(`btn-${mode}`);
+    if(!btn) return;
     const origText = btn.textContent;
 
     if (gameState.activeQueueMode === mode) {
@@ -243,12 +226,12 @@ async function queueMatch(mode) {
 }
 
 async function handleCustomMatch() {
-    const code = document.getElementById('custom-room-code').value.trim();
+    const code = document.getElementById('custom-room-code')?.value?.trim();
     if (code) joinMatch('custom', code); else hostMatch('custom');
 }
 
 async function hostMatch(mode) {
-    if(!playerState.uid && mode !== 'custom' && mode !== 'quickplay') return alert("Guests can only play Custom and Quickplay matches!");
+    if(!playerState.uid && mode !== 'custom') return alert("Guests can only play Custom matches!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Deck Manager first!");
     
     const roomCode = mode === 'custom' ? Math.floor(1000 + Math.random()*9000).toString() : null;
@@ -281,7 +264,7 @@ async function hostMatch(mode) {
 }
 
 async function joinMatch(mode, code = null, directRoomId = null) {
-    if(!playerState.uid && mode !== 'custom' && mode !== 'quickplay') return alert("Guests can only play Custom and Quickplay matches!");
+    if(!playerState.uid && mode !== 'custom') return alert("Guests can only play Custom matches!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Deck Manager first!");
     
     let roomDoc = null;
@@ -336,21 +319,26 @@ document.addEventListener("visibilitychange", () => {
 
 function showPreLobby() {
     hideAllViews();
-    document.getElementById('pre-lobby-view').classList.remove('hidden');
-    document.getElementById('pre-lobby-code').textContent = gameState.roomCode;
+    const v = document.getElementById('pre-lobby-view');
+    if(v) v.classList.remove('hidden');
+    const el = document.getElementById('pre-lobby-code');
+    if(el) el.textContent = gameState.roomCode;
     
     if (gameState.isHost) {
         ['host-set-starter', 'host-set-health', 'host-set-zone', 'host-set-players'].forEach(id => {
-            const el = document.getElementById(id); el.disabled = false;
-            el.onchange = () => db.collection('rooms').doc(currentRoomId).update({
-                'rules.starter': document.getElementById('host-set-starter').checked,
-                'rules.health': document.getElementById('host-set-health').checked,
-                'rules.noZone': document.getElementById('host-set-zone').checked,
-                'rules.maxPlayers': parseInt(document.getElementById('host-set-players').value)
-            });
+            const elm = document.getElementById(id); 
+            if(elm) {
+                elm.disabled = false;
+                elm.onchange = () => db.collection('rooms').doc(currentRoomId).update({
+                    'rules.starter': document.getElementById('host-set-starter')?.checked || false,
+                    'rules.health': document.getElementById('host-set-health')?.checked || false,
+                    'rules.noZone': document.getElementById('host-set-zone')?.checked || false,
+                    'rules.maxPlayers': parseInt(document.getElementById('host-set-players')?.value || 2)
+                });
+            }
         });
-        document.getElementById('btn-start-custom').classList.remove('hidden');
-        document.getElementById('pre-lobby-wait').classList.add('hidden');
+        document.getElementById('btn-start-custom')?.classList.remove('hidden');
+        document.getElementById('pre-lobby-wait')?.classList.add('hidden');
     }
 }
 function startCustomMatch() {
@@ -359,15 +347,18 @@ function startCustomMatch() {
 
 function showVitalLobby(mode) {
     hideAllViews();
-    document.getElementById('vital-lobby-view').classList.remove('hidden');
+    document.getElementById('vital-lobby-view')?.classList.remove('hidden');
     
     const vArea = document.getElementById('vital-selection-area');
     const sArea = document.getElementById('starter-deck-selection');
-    vArea.classList.add('hidden'); sArea.classList.add('hidden');
+    if(vArea) vArea.classList.add('hidden'); 
+    if(sArea) sArea.classList.add('hidden');
     
     const btn = document.getElementById('btn-lock-in-vital');
-    btn.textContent = "Lock In Vital"; btn.disabled = true;
-    btn.classList.remove('bg-amber-600', 'text-stone-950'); btn.classList.add('bg-stone-800', 'text-stone-500');
+    if(btn) {
+        btn.textContent = "Lock In Vital"; btn.disabled = true;
+        btn.classList.remove('bg-amber-600', 'text-stone-950'); btn.classList.add('bg-stone-800', 'text-stone-500');
+    }
     pendingVitalSlot = null;
     document.querySelectorAll('.vital-btn').forEach(b => {
         b.classList.remove('border-amber-400'); 
@@ -376,11 +367,16 @@ function showVitalLobby(mode) {
     
     let isStarter = mode === 'starters' || (gameState.rules && gameState.rules.starter);
     if (mode === 'sandbox') {
-        document.getElementById('lobby-title').textContent = "SANDBOX"; vArea.classList.remove('hidden'); loadDeckIntoGameState();
+        const title = document.getElementById('lobby-title'); if(title) title.textContent = "SANDBOX"; 
+        if(vArea) vArea.classList.remove('hidden'); 
+        loadDeckIntoGameState();
     } else if (isStarter) {
-        document.getElementById('lobby-status').textContent = "Choose your Starter Deck."; sArea.classList.remove('hidden');
+        const ls = document.getElementById('lobby-status'); if(ls) ls.textContent = "Choose your Starter Deck."; 
+        if(sArea) sArea.classList.remove('hidden');
     } else {
-        document.getElementById('lobby-status').textContent = "Waiting for players..."; vArea.classList.remove('hidden'); loadDeckIntoGameState();
+        const ls = document.getElementById('lobby-status'); if(ls) ls.textContent = "Waiting for players..."; 
+        if(vArea) vArea.classList.remove('hidden'); 
+        loadDeckIntoGameState();
     }
 }
 
@@ -400,6 +396,7 @@ function selectVitalSlot(region, idx) {
 
 function checkVitalLockinStatus() {
     const btn = document.getElementById('btn-lock-in-vital');
+    if(!btn) return;
     if (btn.disabled && btn.textContent === "Waiting for others...") return; 
     
     if (currentRoomId === "SANDBOX") {
@@ -417,6 +414,7 @@ function checkVitalLockinStatus() {
 
 function lockInVital() {
     const btn = document.getElementById('btn-lock-in-vital');
+    if(!btn) return;
     btn.disabled = true; btn.textContent = "Waiting for others...";
     btn.classList.replace('bg-amber-600', 'bg-stone-800'); btn.classList.replace('text-stone-950', 'text-stone-500');
     
@@ -437,15 +435,15 @@ function lockInVital() {
 }
 
 function confirmLobbyStarter() {
-    const val = document.getElementById('lobby-starter-select').value;
+    const val = document.getElementById('lobby-starter-select')?.value;
     if(!val) return alert("Select a deck.");
     let tV = null; let tD = {};
     for(const [id, count] of Object.entries(STARTER_DECKS[val])) {
         const c = MASTER_CARDS.find(x=>x.id===id); if(c && c.type==='Vital') tV=id; else tD[id]=count;
     }
     playerState.currentVital = tV; loadDeckIntoGameState(tD, tV);
-    document.getElementById('starter-deck-selection').classList.add('hidden');
-    document.getElementById('vital-selection-area').classList.remove('hidden');
+    document.getElementById('starter-deck-selection')?.classList.add('hidden');
+    document.getElementById('vital-selection-area')?.classList.remove('hidden');
 }
 
 function loadDeckIntoGameState(deckToLoad = playerState.currentDeck, vitalToLoad = playerState.currentVital) {
@@ -461,7 +459,7 @@ function loadDeckIntoGameState(deckToLoad = playerState.currentDeck, vitalToLoad
 
 function enterMatch() {
     hideAllViews();
-    document.getElementById('game-view').classList.remove('hidden');
+    document.getElementById('game-view')?.classList.remove('hidden');
     
     gameState.phase = 'PLAYING';
     gameState.deck.sort(() => Math.random() - 0.5);
@@ -480,55 +478,6 @@ function enterMatch() {
     
     logAction("Match started. Drew 5 cards.");
     startMatchTimer(); renderVTT(); broadcastState();
-}
-
-function saveMatchHistory(roomData) {
-    if (!roomData) return;
-    const isWinner = roomData.winnerUid === getPlayerId();
-    let oppName = "Unknown";
-    let oppDeckIds = [];
-    
-    for (const [uid, p] of Object.entries(roomData.players)) {
-        if (uid !== getPlayerId() && !p.spectator) {
-            oppName = p.name;
-            oppDeckIds = (p.deckCache || []).map(c => c.id);
-            break;
-        }
-    }
-    
-    const entry = {
-        id: Date.now(),
-        date: new Date().toLocaleDateString(),
-        oppName: oppName,
-        result: isWinner ? "Victory" : "Defeat",
-        mode: roomData.mode,
-        oppDeck: oppDeckIds
-    };
-    
-    playerState.matchHistory = playerState.matchHistory || [];
-    playerState.matchHistory.unshift(entry);
-    if(playerState.matchHistory.length > 20) playerState.matchHistory.pop();
-    
-    if (playerState.uid) {
-        let updates = { matchHistory: playerState.matchHistory };
-        if (isWinner && (roomData.mode === 'quickplay' || roomData.mode === 'ranked')) {
-            playerState.accountGold += 3;
-            playerState.xp = (playerState.xp || 0) + 25;
-            if (playerState.xp >= 100) {
-                playerState.xp = 0;
-                let rIdx = RANKS.indexOf(playerState.rank);
-                if (rIdx < RANKS.length - 1) {
-                    playerState.rank = RANKS[rIdx + 1];
-                }
-            }
-            updates.accountGold = playerState.accountGold;
-            updates.xp = playerState.xp;
-            updates.rank = playerState.rank;
-        }
-        db.collection('players').doc(playerState.uid).update(updates).then(() => updateUI());
-    } else {
-        localStorage.setItem('gb_history', JSON.stringify(playerState.matchHistory));
-    }
 }
 
 // --- SYNC & LISTENER ---
@@ -550,12 +499,15 @@ function listenToRoom() {
         if(data.status === 'CLOSED') { alert("Room closed."); executeLeaveMatch(); return; }
 
         if(gameState.phase === 'LOBBY' && data.status === 'PRE_LOBBY') {
-            const pDiv = document.getElementById('pre-lobby-players'); pDiv.innerHTML = '';
-            Object.values(data.players).forEach(p => pDiv.innerHTML += `<div>${p.name} connected</div>`);
+            const pDiv = document.getElementById('pre-lobby-players'); 
+            if(pDiv) {
+                pDiv.innerHTML = '';
+                Object.values(data.players).forEach(p => pDiv.innerHTML += `<div>${p.name} connected</div>`);
+            }
             if(!gameState.isHost && data.rules) {
-                document.getElementById('host-set-starter').checked = data.rules.starter;
-                document.getElementById('host-set-health').checked = data.rules.health;
-                document.getElementById('host-set-zone').checked = data.rules.noZone;
+                const s1 = document.getElementById('host-set-starter'); if(s1) s1.checked = data.rules.starter;
+                const s2 = document.getElementById('host-set-health'); if(s2) s2.checked = data.rules.health;
+                const s3 = document.getElementById('host-set-zone'); if(s3) s3.checked = data.rules.noZone;
             }
         }
         
@@ -565,14 +517,16 @@ function listenToRoom() {
         
         if (gameState.phase === 'VITAL') {
             const ls = document.getElementById('lobby-status');
-            if (Object.keys(data.players).length >= 2) {
-                ls.textContent = "Player found! Select & lock in your vital.";
-                ls.classList.replace('text-stone-400', 'text-amber-400');
-                checkVitalLockinStatus();
-            } else {
-                ls.textContent = "Waiting for players...";
-                ls.classList.replace('text-amber-400', 'text-stone-400');
-                checkVitalLockinStatus();
+            if(ls) {
+                if (Object.keys(data.players).length >= 2) {
+                    ls.textContent = "Player found! Select & lock in your vital.";
+                    ls.classList.replace('text-stone-400', 'text-amber-400');
+                    checkVitalLockinStatus();
+                } else {
+                    ls.textContent = "Waiting for players...";
+                    ls.classList.replace('text-amber-400', 'text-stone-400');
+                    checkVitalLockinStatus();
+                }
             }
         }
 
@@ -598,23 +552,31 @@ function listenToRoom() {
         if(data.chat && data.chat.length > lastChatCount) {
             const newChats = data.chat.slice(lastChatCount);
             const cb = document.getElementById('chat-log');
-            newChats.forEach(c => {
-                cb.innerHTML += `<div><span class="${c.uid===getPlayerId()?'text-green-500':'text-amber-500'} font-bold">${c.name}:</span> ${c.msg}</div>`;
-            });
-            cb.scrollTop = cb.scrollHeight; lastChatCount = data.chat.length;
+            if(cb) {
+                newChats.forEach(c => {
+                    cb.innerHTML += `<div><span class="${c.uid===getPlayerId()?'text-green-500':'text-amber-500'} font-bold">${c.name}:</span> ${c.msg}</div>`;
+                });
+                cb.scrollTop = cb.scrollHeight; 
+            }
+            lastChatCount = data.chat.length;
         }
         
         if(data.logs && data.logs.length > lastLogCount) {
             const newLogs = data.logs.slice(lastLogCount);
             const lb = document.getElementById('action-log');
-            newLogs.forEach(l => { if (l.uid !== getPlayerId()) lb.innerHTML += `<div><span class="text-amber-500">></span> ${l.name}: ${l.msg}</div>`; });
-            lb.scrollTop = lb.scrollHeight; lastLogCount = data.logs.length;
+            if(lb) {
+                newLogs.forEach(l => { if (l.uid !== getPlayerId()) lb.innerHTML += `<div><span class="text-amber-500">></span> ${l.name}: ${l.msg}</div>`; });
+                lb.scrollTop = lb.scrollHeight; 
+            }
+            lastLogCount = data.logs.length;
         }
 
         if(data.status === 'FINISHED' && gameState.phase === 'PLAYING') {
-            saveMatchHistory(data);
             if(data.winnerUid === getPlayerId() && playerState.uid && (data.mode==='quickplay'||data.mode==='starters')) {
-                alert("WINNER! You earned 3 Gold and 25 XP.");
+                alert("WINNER! You earned 3 Gold.");
+                playerState.accountGold += 3;
+                db.collection('players').doc(playerState.uid).update({ accountGold: playerState.accountGold });
+                updateUI();
             } else if (data.winnerUid === getPlayerId()) alert("WINNER!");
             else alert("DEFEATED! Winner was decided.");
             executeLeaveMatch();
@@ -637,7 +599,8 @@ function startMatchTimer() {
         matchSeconds++;
         const m = String(Math.floor(matchSeconds / 60)).padStart(2, '0');
         const s = String(matchSeconds % 60).padStart(2, '0');
-        document.getElementById('match-timer').textContent = `${m}:${s}`;
+        const tm = document.getElementById('match-timer');
+        if(tm) tm.textContent = `${m}:${s}`;
     }, 1000);
 }
 
@@ -670,11 +633,15 @@ function renderVTT() {
         }
     }
 
-    const handEl = document.getElementById('player-hand-container'); handEl.innerHTML = '';
+    const handEl = document.getElementById('player-hand-container'); 
+    if(handEl) handEl.innerHTML = '';
 
     if(myP.spectator) {
-        document.getElementById('player-active-board').classList.add('hidden');
-        document.getElementById('spectator-ui').classList.remove('hidden');
+        const activeBoard = document.getElementById('player-active-board');
+        if(activeBoard) activeBoard.classList.add('hidden');
+        
+        const specUi = document.getElementById('spectator-ui');
+        if(specUi) specUi.classList.remove('hidden');
         
         const concedeBtn = document.getElementById('btn-concede');
         if(concedeBtn) {
@@ -687,20 +654,25 @@ function renderVTT() {
 
         renderSpectatorCheckboxes();
 
-        Object.entries(gameState.players).forEach(([uid, p]) => {
-            if(gameState.spectatorVision[uid] && p.handCache && p.handCache.length > 0) {
-                p.handCache.forEach(card => {
-                    const div = document.createElement('div');
-                    div.className = `w-[110px] h-[155px] flex-shrink-0 rounded-md overflow-hidden border-2 border-amber-500/50 shadow-lg relative`;
-                    div.innerHTML = `<img src="${card.image || 'GoldBurnLogo (1).png'}" class="card-img-full bg-stone-900 p-1" onerror="this.src='GoldBurnLogo (1).png'"><div class="absolute bottom-0 w-full bg-black/80 text-[9px] text-amber-400 font-bold text-center truncate px-1">${p.name}</div>`;
-                    handEl.appendChild(div);
-                });
-            }
-        });
+        if(handEl) {
+            Object.entries(gameState.players).forEach(([uid, p]) => {
+                if(gameState.spectatorVision[uid] && p.handCache && p.handCache.length > 0) {
+                    p.handCache.forEach(card => {
+                        const div = document.createElement('div');
+                        div.className = `w-[110px] h-[155px] flex-shrink-0 rounded-md overflow-hidden border-2 border-amber-500/50 shadow-lg relative`;
+                        div.innerHTML = `<img src="${card.image}" class="card-img-full bg-stone-900 p-1" onerror="this.src='GoldBurnLogo (1).png'"><div class="absolute bottom-0 w-full bg-black/80 text-[9px] text-amber-400 font-bold text-center truncate px-1">${p.name}</div>`;
+                        handEl.appendChild(div);
+                    });
+                }
+            });
+        }
         return;
     } else {
-        document.getElementById('player-active-board').classList.remove('hidden');
-        document.getElementById('spectator-ui').classList.add('hidden');
+        const activeBoard = document.getElementById('player-active-board');
+        if(activeBoard) activeBoard.classList.remove('hidden');
+        
+        const specUi = document.getElementById('spectator-ui');
+        if(specUi) specUi.classList.add('hidden');
         
         const concedeBtn = document.getElementById('btn-concede');
         if(concedeBtn) {
@@ -708,43 +680,47 @@ function renderVTT() {
             concedeBtn.onclick = leaveMatch;
         }
 
-        gameState.hand.forEach((card, idx) => {
-            const div = document.createElement('div');
-            div.className = `w-[110px] h-[155px] flex-shrink-0 cursor-pointer rounded-md overflow-hidden border-2 transition ${selectedHandIndex === idx ? 'border-amber-400 scale-105 z-20' : 'border-stone-800'}`;
-            div.innerHTML = `<img src="${card.image || 'GoldBurnLogo (1).png'}" class="card-img-full bg-stone-900 p-1" onerror="this.src='GoldBurnLogo (1).png'">`;
-            div.onclick = (e) => {
-                e.stopPropagation();
-                
-                let canPlay = isMyTurn;
-                if (card.type === 'Act' && card.subtypes && card.subtypes.includes('Fast')) canPlay = true;
-                if (!canPlay) return;
+        if(handEl) {
+            gameState.hand.forEach((card, idx) => {
+                const div = document.createElement('div');
+                div.className = `w-[110px] h-[155px] flex-shrink-0 cursor-pointer rounded-md overflow-hidden border-2 transition ${selectedHandIndex === idx ? 'border-amber-400 scale-105 z-20' : 'border-stone-800'}`;
+                div.innerHTML = `<img src="${card.image}" class="card-img-full bg-stone-900 p-1" onerror="this.src='GoldBurnLogo (1).png'">`;
+                div.onclick = (e) => {
+                    e.stopPropagation();
+                    
+                    let canPlay = isMyTurn;
+                    if (card.type === 'Act' && card.subtypes && card.subtypes.includes('Fast')) canPlay = true;
+                    if (!canPlay) return;
 
-                selectedHandIndex = selectedHandIndex === idx ? null : idx;
-                activeInsSlot = null; gameState.moveMode = false; gameState.targetMode = false;
-                if(selectedHandIndex !== null) inspectCard(card, 'hand', idx); else inspectEmpty();
-                renderVTT();
-            };
-            handEl.appendChild(div);
-        });
+                    selectedHandIndex = selectedHandIndex === idx ? null : idx;
+                    activeInsSlot = null; gameState.moveMode = false; gameState.targetMode = false;
+                    if(selectedHandIndex !== null) inspectCard(card, 'hand', idx); else inspectEmpty();
+                    renderVTT();
+                };
+                handEl.appendChild(div);
+            });
+        }
     }
 
-    document.getElementById('deck-count-hud').textContent = gameState.deck.length;
-    document.getElementById('match-gold-val').textContent = myP.gold || 0;
+    const dH = document.getElementById('deck-count-hud'); if(dH) dH.textContent = gameState.deck.length;
+    const mG = document.getElementById('match-gold-val'); if(mG) mG.textContent = myP.gold || 0;
     
     const toPanel = document.getElementById('turn-order-list');
-    toPanel.innerHTML = '';
-    gameState.turnOrder.forEach(uid => {
-        const p = gameState.players[uid];
-        if(!p || p.spectator) return;
-        const isAct = uid === gameState.activeTurnUid;
-        toPanel.innerHTML += `<div class="flex items-center gap-2 p-1 rounded transition ${isAct?'turn-active border border-amber-500':'border border-stone-800 opacity-70'}"><img src="${p.photo}" class="w-6 h-6 rounded-full"><span class="text-xs font-bold ${isAct?'text-amber-400':'text-stone-400'} truncate w-full">${p.name}</span></div>`;
-    });
+    if(toPanel) {
+        toPanel.innerHTML = '';
+        gameState.turnOrder.forEach(uid => {
+            const p = gameState.players[uid];
+            if(!p || p.spectator) return;
+            const isAct = uid === gameState.activeTurnUid;
+            toPanel.innerHTML += `<div class="flex items-center gap-2 p-1 rounded transition ${isAct?'turn-active border border-amber-500':'border border-stone-800 opacity-70'}"><img src="${p.photo}" class="w-6 h-6 rounded-full"><span class="text-xs font-bold ${isAct?'text-amber-400':'text-stone-400'} truncate w-full">${p.name}</span></div>`;
+        });
+    }
 
     const opps = Object.keys(gameState.players).filter(u => u !== myUid && !gameState.players[u].spectator).sort();
     const multiContainer = document.getElementById('opponents-container');
     const soloContainer = document.getElementById('opp-1v1-board');
 
-    if (opps.length === 1) {
+    if (opps.length === 1 && multiContainer && soloContainer) {
         multiContainer.classList.add('hidden');
         soloContainer.classList.remove('hidden');
         const oppUid = opps[0];
@@ -774,7 +750,7 @@ function renderVTT() {
                 <div class="board-slot bg-stone-950 border border-stone-700 rounded flex items-center justify-center text-xs text-amber-500 font-bold cursor-pointer hover:border-amber-400 transition bg-[url('GoldBurnLogo (1).png')] bg-cover bg-center bg-blend-overlay bg-black/80" onclick="openPeerModal('${oppUid}', 'deck')">DECK [${p.deckCount}]</div>
             </div>
         `;
-    } else {
+    } else if (multiContainer && soloContainer) {
         soloContainer.classList.add('hidden');
         multiContainer.classList.remove('hidden');
         multiContainer.innerHTML = '';
@@ -843,7 +819,7 @@ function renderVTT() {
         const el = document.getElementById(`${z}-visual`); if(!el) return;
         const arr = myP[z] || [];
         const label = z === 'gy' ? 'GRAVE YARD' : 'VOID';
-        el.innerHTML = arr.length > 0 ? `<img src="${arr[arr.length-1].image || 'GoldBurnLogo (1).png'}" class="absolute inset-0 w-full h-full object-cover opacity-60" onerror="this.src='GoldBurnLogo (1).png'"><span class="z-10 bg-black/80 px-2 rounded font-bold text-center">${label}<br>[${arr.length}]</span>` : `<span class="z-10 bg-black/80 px-2 rounded font-bold text-center">${label}<br>[0]</span>`;
+        el.innerHTML = arr.length > 0 ? `<img src="${arr[arr.length-1].image}" class="absolute inset-0 w-full h-full object-cover opacity-60" onerror="this.src='GoldBurnLogo (1).png'"><span class="z-10 bg-black/80 px-2 rounded font-bold text-center">${label}<br>[${arr.length}]</span>` : `<span class="z-10 bg-black/80 px-2 rounded font-bold text-center">${label}<br>[0]</span>`;
     });
 }
 
@@ -854,7 +830,7 @@ function renderSlotHtml(card, uid, region, idx, isOpp, isCenter=false, htmlIdPre
         const dbRegion = isCenter ? 'center' : region;
         const sel = activeInsSlot && activeInsSlot.region === dbRegion && activeInsSlot.index === idx && activeInsSlot.uid === uid;
         return `<div id="${sId}" onclick="event.stopPropagation(); inspectFromBoard('${uid}','${dbRegion}',${idx},${isOpp})" class="board-slot bg-stone-900 border-2 ${sel?'border-amber-400 scale-[1.02] shadow-xl z-10':(isOpp?'border-red-900/50':'border-amber-600/50')} rounded overflow-hidden cursor-pointer">
-            <img src="${card.image || 'GoldBurnLogo (1).png'}" class="card-img-full bg-black ${card.exhausted?'opacity-50':''}" onerror="this.src='GoldBurnLogo (1).png'">
+            <img src="${card.image}" class="card-img-full bg-black ${card.exhausted?'opacity-50':''}" onerror="this.src='GoldBurnLogo (1).png'">
             ${card.exhausted ? `<div class="zzz-overlay bg-black/80 px-1 rounded text-[10px]">USED</div>` : ''}
             ${card.currentHp!==undefined ? `<div class="hp-badge">${card.currentHp}</div>` : ''}
             <div class="marker-container">${mh}</div>
@@ -871,7 +847,9 @@ function renderSlotHtml(card, uid, region, idx, isOpp, isCenter=false, htmlIdPre
 }
 
 function renderSpectatorCheckboxes() {
-    const cont = document.getElementById('spectator-checkboxes'); cont.innerHTML = '';
+    const cont = document.getElementById('spectator-checkboxes'); 
+    if(!cont) return;
+    cont.innerHTML = '';
     Object.entries(gameState.players).forEach(([uid, p]) => {
         if(!p.spectator && uid !== getPlayerId()) {
             const chk = gameState.spectatorVision[uid] ? 'checked' : '';
@@ -941,38 +919,55 @@ function finishMoving(region, index) {
 
 function inspectCard(card, region, idx, isOpp=false) {
     if(!card) return;
-    document.getElementById('ins-img').src = card.image || 'GoldBurnLogo (1).png';
-    document.getElementById('ins-name').textContent = card.name;
-    document.getElementById('ins-stats').textContent = `${card.type} | ${card.subtypes ? card.subtypes.join(', ') : ''}`;
-    document.getElementById('ins-desc').textContent = `Cost: ${card.cost||0} | HP: ${card.hp||'-'}\n\n${card.description}`;
+    const img = document.getElementById('ins-img'); if(img) img.src = card.image || 'GoldBurnLogo (1).png';
+    const n = document.getElementById('ins-name'); if(n) n.textContent = card.name;
+    const s = document.getElementById('ins-stats'); if(s) s.textContent = `${card.type} | ${card.subtypes ? card.subtypes.join(', ') : ''}`;
+    const d = document.getElementById('ins-desc'); if(d) d.textContent = `Cost: ${card.cost||0} | HP: ${card.hp||'-'}\n\n${card.description}`;
     
-    ['ins-empty-actions','ins-hand-actions','ins-board-actions','ins-zone-actions'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    ['ins-empty-actions','ins-hand-actions','ins-board-actions','ins-zone-actions'].forEach(id => {
+        const el = document.getElementById(id); if(el) el.classList.add('hidden');
+    });
 
     if(isOpp) return;
-    if (region === 'hand') document.getElementById('ins-hand-actions').classList.remove('hidden');
+    if (region === 'hand') {
+        const a = document.getElementById('ins-hand-actions'); if(a) a.classList.remove('hidden');
+    }
     else if (region === 'gy' || region === 'void') {
-        document.getElementById('ins-zone-actions').classList.remove('hidden');
-        document.getElementById('btn-zone-hand').onclick = () => moveZoneCard(region, 'hand', idx);
-        document.getElementById('btn-zone-deck').onclick = () => moveZoneCard(region, 'deck', idx);
+        const a = document.getElementById('ins-zone-actions'); if(a) a.classList.remove('hidden');
+        const zH = document.getElementById('btn-zone-hand'); if(zH) zH.onclick = () => moveZoneCard(region, 'hand', idx);
+        const zD = document.getElementById('btn-zone-deck'); if(zD) zD.onclick = () => moveZoneCard(region, 'deck', idx);
         const oB = document.getElementById('btn-zone-opposite');
-        if(region==='gy'){ oB.textContent="To Void"; oB.onclick=()=>moveZoneCard('gy','void',idx); } else { oB.textContent="To GY"; oB.onclick=()=>moveZoneCard('void','gy',idx); }
+        if(oB) {
+            if(region==='gy'){ oB.textContent="To Void"; oB.onclick=()=>moveZoneCard('gy','void',idx); } else { oB.textContent="To GY"; oB.onclick=()=>moveZoneCard('void','gy',idx); }
+        }
     } else if (region) {
-        document.getElementById('ins-board-actions').classList.remove('hidden');
-        document.getElementById('ins-hp-val').textContent = card.currentHp || 0;
-        ['red','blue','green','black'].forEach(c => document.getElementById(`ins-m-${c}`).textContent = card.markers[c]||0);
+        const a = document.getElementById('ins-board-actions'); if(a) a.classList.remove('hidden');
+        const hV = document.getElementById('ins-hp-val'); if(hV) hV.textContent = card.currentHp || 0;
+        ['red','blue','green','black'].forEach(c => {
+            const m = document.getElementById(`ins-m-${c}`); if(m) m.textContent = card.markers[c]||0;
+        });
     }
 }
 function inspectEmpty() {
-    document.getElementById('ins-img').src = 'GoldBurnLogo (1).png'; document.getElementById('ins-name').textContent = "Select a Card"; document.getElementById('ins-desc').textContent = "";
-    ['ins-board-actions','ins-hand-actions','ins-zone-actions','ins-empty-actions'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    const img = document.getElementById('ins-img'); if(img) img.src = 'GoldBurnLogo (1).png'; 
+    const n = document.getElementById('ins-name'); if(n) n.textContent = "Select a Card"; 
+    const d = document.getElementById('ins-desc'); if(d) d.textContent = "";
+    ['ins-board-actions','ins-hand-actions','ins-zone-actions','ins-empty-actions'].forEach(id => {
+        const el = document.getElementById(id); if(el) el.classList.add('hidden');
+    });
 }
-function showEmptyInspector() { inspectEmpty(); document.getElementById('ins-name').textContent = "Empty Slot"; document.getElementById('ins-empty-actions').classList.remove('hidden'); }
+function showEmptyInspector() { 
+    inspectEmpty(); 
+    const n = document.getElementById('ins-name'); if(n) n.textContent = "Empty Slot"; 
+    const e = document.getElementById('ins-empty-actions'); if(e) e.classList.remove('hidden'); 
+}
 
 function enlargeImage() {
-    const src = document.getElementById('ins-img').src;
+    const img = document.getElementById('ins-img');
+    const src = img ? img.src : null;
     if (src && !src.includes('GoldBurnLogo')) {
-        document.getElementById('enlarged-img').src = src;
-        document.getElementById('enlarge-modal').classList.remove('hidden');
+        const eI = document.getElementById('enlarged-img'); if(eI) eI.src = src;
+        const eM = document.getElementById('enlarge-modal'); if(eM) eM.classList.remove('hidden');
     }
 }
 
@@ -1102,24 +1097,26 @@ function drawTargetLine(data) {
 
 // Chat, Dice & Commands
 function sendChat() {
-    const input = document.getElementById('chat-input'); const msg = input.value.trim(); if(!msg) return; input.value = '';
+    const input = document.getElementById('chat-input'); const msg = input?.value?.trim(); if(!msg) return; input.value = '';
     if(currentRoomId !== "SANDBOX") db.collection('rooms').doc(currentRoomId).update({ chat: firebase.firestore.FieldValue.arrayUnion({ uid: getPlayerId(), name: playerState.displayName, msg }) });
-    else { const cb = document.getElementById('chat-log'); cb.innerHTML += `<div><span class="text-green-500 font-bold">You:</span> ${msg}</div>`; cb.scrollTop = cb.scrollHeight; }
+    else { const cb = document.getElementById('chat-log'); if(cb){ cb.innerHTML += `<div><span class="text-green-500 font-bold">You:</span> ${msg}</div>`; cb.scrollTop = cb.scrollHeight;} }
 }
 function rollDice() {
-    const max = parseInt(document.getElementById('dice-type').value);
+    const max = parseInt(document.getElementById('dice-type')?.value || 6);
     const res = Math.floor(Math.random()*max)+1;
     const msg = `rolled a d${max} and got ${res}.`;
     if(currentRoomId !== "SANDBOX") db.collection('rooms').doc(currentRoomId).update({ chat: firebase.firestore.FieldValue.arrayUnion({ uid: 'SYSTEM', name: playerState.displayName, msg }) });
-    else { const cb = document.getElementById('chat-log'); cb.innerHTML += `<div><span class="text-purple-400 font-bold">${playerState.displayName}:</span> ${msg}</div>`; cb.scrollTop = cb.scrollHeight; }
+    else { const cb = document.getElementById('chat-log'); if(cb){cb.innerHTML += `<div><span class="text-purple-400 font-bold">${playerState.displayName}:</span> ${msg}</div>`; cb.scrollTop = cb.scrollHeight;} }
 }
 function logAction(msg) {
-    const lb = document.getElementById('action-log'); lb.innerHTML += `<div><span class="text-amber-500">></span> ${msg}</div>`; lb.scrollTop = lb.scrollHeight;
+    const lb = document.getElementById('action-log'); if(lb) { lb.innerHTML += `<div><span class="text-amber-500">></span> ${msg}</div>`; lb.scrollTop = lb.scrollHeight; }
     if(currentRoomId && currentRoomId !== "SANDBOX") db.collection('rooms').doc(currentRoomId).update({ logs: firebase.firestore.FieldValue.arrayUnion({ uid: getPlayerId(), name: playerState.displayName, msg }) });
 }
 
 // Turn Management
 function endTurn() {
+    if(gameState.activeTurnUid !== getPlayerId() && currentRoomId !== "SANDBOX") return;
+    
     const myP = gameState.players[getPlayerId()];
     ['front','back','center'].forEach(r => myP[r].forEach(c => { if(c) c.exhausted = false; }));
     
@@ -1141,9 +1138,11 @@ function openPeerModal(uid, zone) {
     selectedPeerCardId = null;
     const m = document.getElementById('peer-modal');
     const g = document.getElementById('peer-grid');
-    document.getElementById('peer-modal-title').textContent = `${zone === 'gy' ? 'GRAVEYARD' : zone.toUpperCase()}`;
-    document.getElementById('peer-card-actions').classList.add('hidden');
-    g.innerHTML = '';
+    const title = document.getElementById('peer-modal-title');
+    if(title) title.textContent = `${zone === 'gy' ? 'GRAVEYARD' : zone.toUpperCase()}`;
+    const actions = document.getElementById('peer-card-actions');
+    if(actions) actions.classList.add('hidden');
+    if(g) g.innerHTML = '';
     
     let arr = [];
     if (uid === getPlayerId()) {
@@ -1156,12 +1155,14 @@ function openPeerModal(uid, zone) {
     
     arr.sort((a,b) => a.name.localeCompare(b.name));
     
-    arr.forEach(c => {
-        g.innerHTML += `<div class="peer-card-item bg-stone-900 border-2 border-stone-700 rounded p-1 cursor-pointer hover:border-amber-500 transition" id="peer-card-${c.instanceId}" onclick="handlePeerCardClick('${c.instanceId}')">
-            <img src="${c.image || 'GoldBurnLogo (1).png'}" class="w-full h-auto object-contain" onerror="this.src='GoldBurnLogo (1).png'">
-        </div>`;
-    });
-    m.classList.remove('hidden');
+    if(g) {
+        arr.forEach(c => {
+            g.innerHTML += `<div class="peer-card-item bg-stone-900 border-2 border-stone-700 rounded p-1 cursor-pointer hover:border-amber-500 transition" id="peer-card-${c.instanceId}" onclick="handlePeerCardClick('${c.instanceId}')">
+                <img src="${c.image}" class="w-full h-auto object-contain" onerror="this.src='GoldBurnLogo (1).png'">
+            </div>`;
+        });
+    }
+    if(m) m.classList.remove('hidden');
     if(zone === 'deck' && uid !== getPlayerId()) logAction("Peered at opponent's deck.");
     else if(zone === 'deck') logAction("Peered into deck.");
 }
@@ -1179,8 +1180,8 @@ function handlePeerCardClick(instanceId) {
         const activeEl = document.getElementById(`peer-card-${instanceId}`);
         if(activeEl) activeEl.classList.add('border-amber-400', 'scale-105');
         
-        document.getElementById('peer-selected-card-name').textContent = card.name;
-        document.getElementById('peer-card-actions').classList.remove('hidden');
+        const n = document.getElementById('peer-selected-card-name'); if(n) n.textContent = card.name;
+        const actions = document.getElementById('peer-card-actions'); if(actions) actions.classList.remove('hidden');
     } else {
         const idx = arr.findIndex(c => c.instanceId === instanceId);
         if (idx > -1) {
@@ -1218,7 +1219,7 @@ function movePeerSelectedCard(targetZone) {
 
 function closePeerModal(e) {
     if(e && e.target.id !== 'peer-modal' && e.target.id !== 'close-peer-btn') return;
-    document.getElementById('peer-modal').classList.add('hidden');
+    const m = document.getElementById('peer-modal'); if(m) m.classList.add('hidden');
     if (activePeerZone && activePeerZone.uid === getPlayerId() && activePeerZone.zone === 'deck') {
         gameState.deck.sort(() => Math.random() - 0.5);
         logAction("Deck shuffled.");
@@ -1228,11 +1229,14 @@ function closePeerModal(e) {
     selectedPeerCardId = null;
 }
 
+let hasConcededLocally = false;
 function leaveMatch() {
+    if(hasConcededLocally) return;
     if(gameState.players[getPlayerId()] && gameState.players[getPlayerId()].spectator) return;
     
     if(gameState.phase === 'PLAYING' && currentRoomId && currentRoomId !== "SANDBOX") {
         if(confirm("Concede match?")) {
+            hasConcededLocally = true;
             gameState.players[getPlayerId()].spectator = true;
             processPlayerElimination();
         }
@@ -1240,6 +1244,7 @@ function leaveMatch() {
 }
 
 function executeLeaveMatch() {
+    hasConcededLocally = false;
     if(currentRoomId && currentRoomId !== "SANDBOX" && gameState.isHost) db.collection('rooms').doc(currentRoomId).update({ status: 'CLOSED' }).catch(()=>{});
     gameState.phase = 'LOBBY'; if(roomUnsubscribe) { roomUnsubscribe(); roomUnsubscribe=null; } currentRoomId=null;
     clearInterval(matchTimerInterval); clearInterval(hostPingInterval);
@@ -1248,8 +1253,8 @@ function executeLeaveMatch() {
     activeQueueUnsub = null; gameState.activeQueueMode = null;
 
     hideAllViews();
-    document.getElementById('lobby-view').classList.remove('hidden');
-    switchTab('play'); loadLocalDeck(); renderHistory(); loadLeaderboard();
+    const v = document.getElementById('lobby-view'); if(v) v.classList.remove('hidden');
+    switchTab('play'); loadLocalDeck();
 }
 
 // --- DECK MANAGER ---
@@ -1259,104 +1264,45 @@ function loadLocalDeck() {
     playerState.currentVital = localStorage.getItem('gb_currentVital') || null;
     playerState.activeDeckName = localStorage.getItem('gb_activeDeckName') || "Custom Deck";
 }
-
 function saveLocalDeck() {
     localStorage.setItem('gb_currentDeck', JSON.stringify(playerState.currentDeck));
     localStorage.setItem('gb_currentVital', playerState.currentVital || '');
     localStorage.setItem('gb_activeDeckName', playerState.activeDeckName);
 }
 
-function loadLocalHistory() {
-    const hist = localStorage.getItem('gb_history');
-    if(hist) playerState.matchHistory = JSON.parse(hist);
-}
-
 function isCardOwned(card) {
-    let unlocked = playerState.unlockedCards || [];
-    if (unlocked.length === 0) unlocked = ['Bandits Arrival Starter'];
-
-    for (let unlockedItem of unlocked) {
-        if (card.set && card.set.includes(unlockedItem)) return true;
-        
-        if (unlockedItem === "Bandits Arrival Starter" && (card.id.startsWith('SDBA_') || card.id === 'DW_thebanditcaptain' || (card.set && card.set.includes('Bandits')))) return true;
-        if (unlockedItem === "Devout Patronage Starter" && (card.id.startsWith('SDDP_') || (card.set && card.set.includes('Devout')))) return true;
-        if (unlockedItem === "Aurum Guild Starter" && (card.id.startsWith('SDAG_') || (card.set && card.set.includes('Aurum')))) return true;
-        if (unlockedItem === "Dread Apocalypse Starter" && (card.id.startsWith('SDDA_') || (card.set && card.set.includes('Dread')))) return true;
-        
-        if (unlockedItem === "Season 0 Card List" && card.id.startsWith('S0CL_')) return true;
-        if (unlockedItem === "Season 1 Card List" && card.id.startsWith('S1CL_')) return true;
-        if (unlockedItem === "Season 2 Card List" && card.id.startsWith('S2CL_')) return true;
-        if (unlockedItem === "Dead Of Winter" && card.id.startsWith('DOW_')) return true;
-        if (unlockedItem === "Power Escalation" && card.id.startsWith('PE_')) return true;
-        if (unlockedItem === "The Vox Populi" && card.id.startsWith('TVP_')) return true;
-        if (unlockedItem === "Blood Money" && card.id.startsWith('BM_')) return true;
-        if (unlockedItem === "Crimson Onslaught" && card.id.startsWith('CO_')) return true;
-        if (unlockedItem === "Dice World" && card.id.startsWith('DW_')) return true;
-        if (unlockedItem === "All Stars" && card.id.startsWith('AS_')) return true;
-    }
+    if(card.id === 'DW_thebanditcaptain' && (!playerState.uid || playerState.unlockedCards.includes('Bandits Arrival Starter'))) return true;
+    if(!playerState.uid) return card.set && card.set.includes('Bandits Arrival');
+    if(playerState.unlockedCards.includes(card.id)) return true;
+    if(card.set && card.set.includes('Bandits') && playerState.unlockedCards.includes('Bandits Arrival Starter')) return true;
+    if(card.set && card.set.includes('Devout') && playerState.unlockedCards.includes('Devout Patronage Starter')) return true;
     return false;
 }
 
-function toggleSubtypeDropdown() { document.getElementById('subtype-dropdown-panel').classList.toggle('hidden'); }
+function toggleSubtypeDropdown() { 
+    const el = document.getElementById('subtype-dropdown-panel');
+    if(el) el.classList.toggle('hidden'); 
+}
 
 let selectedFilterTypes = new Set();
-let currentCostFilter = '';
-
-function setCostFilter(val) {
-    currentCostFilter = val;
-    if(val === 'X' || val === '') document.getElementById('filter-cost-num').value = '';
-    filterCollection();
-}
-
-function updateSetDropdown() {
-    const select = document.getElementById('filter-set');
-    if (!select) return;
-    const currentVal = select.value;
-    select.innerHTML = '<option value="all">All Available Sets</option>';
-    
-    let unlocked = playerState.unlockedCards || ['Bandits Arrival Starter'];
-    if(unlocked.length === 0) unlocked = ['Bandits Arrival Starter'];
-    
-    const setMap = {
-        "Bandits Arrival Starter": { val: "Bandits Arrival", text: "Bandits Arrival Starter" },
-        "Devout Patronage Starter": { val: "Devout Patronage", text: "Devout Patronage Starter" },
-        "Dread Apocalypse Starter": { val: "Dread Apocalypse", text: "Dread Apocalypse Starter" },
-        "Aurum Guild Starter": { val: "Aurum Guild", text: "Aurum Guild Starter" },
-        "Season 0 Card List": { val: "Season 0", text: "Season 0 Card List" },
-        "Season 1 Card List": { val: "Season 1", text: "Season 1 Card List" },
-        "Season 2 Card List": { val: "Season 2", text: "Season 2 Card List" },
-        "Dead Of Winter": { val: "Dead Of Winter", text: "Dead Of Winter" },
-        "Power Escalation": { val: "Power Escalation", text: "Power Escalation" },
-        "The Vox Populi": { val: "The Vox Populi", text: "The Vox Populi" },
-        "Blood Money": { val: "Blood Money", text: "Blood Money" },
-        "Crimson Onslaught": { val: "Crimson Onslaught", text: "Crimson Onslaught" },
-        "Dice World": { val: "Dice World", text: "Dice World" },
-        "All Stars": { val: "All Stars", text: "All Stars" }
-    };
-
-    unlocked.forEach(item => {
-        if (setMap[item]) {
-            select.innerHTML += `<option value="${setMap[item].val}">${setMap[item].text}</option>`;
-        }
-    });
-    
-    select.value = currentVal || 'all';
-}
-
 function filterCollection() {
     const nameEl = document.getElementById('card-search-name');
-    if(!nameEl) return;
-    const qName = nameEl.value.toLowerCase();
-    const qDesc = document.getElementById('card-search-desc').value.toLowerCase();
-    
-    const costInput = document.getElementById('filter-cost-num').value;
-    if (costInput !== '') currentCostFilter = costInput;
-    
-    const setFilter = document.getElementById('filter-set').value;
-    const speed = document.getElementById('filter-speed').value;
-    const sort = document.getElementById('sort-by').value;
+    const descEl = document.getElementById('card-search-desc');
+    const costEl = document.getElementById('filter-cost');
+    const setEl = document.getElementById('filter-set');
+    const speedEl = document.getElementById('filter-speed');
+    const sortEl = document.getElementById('sort-by');
     const grid = document.getElementById('collection-grid');
-    if(!grid) return;
+
+    if (!grid) return;
+
+    const qName = nameEl?.value?.toLowerCase() || '';
+    const qDesc = descEl?.value?.toLowerCase() || '';
+    const cost = costEl?.value || 'all';
+    const setFilter = setEl?.value || 'all';
+    const speed = speedEl?.value || 'all';
+    const sort = sortEl?.value || 'name';
+
     grid.innerHTML = '';
 
     const panel = document.getElementById('subtype-dropdown-panel');
@@ -1380,36 +1326,14 @@ function filterCollection() {
         if (!isCardOwned(card)) return false;
         if (qName && !card.name.toLowerCase().includes(qName)) return false;
         if (qDesc && (!card.description || !card.description.toLowerCase().includes(qDesc))) return false;
-        
-        if (currentCostFilter !== '') {
-            if (currentCostFilter === 'X' || currentCostFilter === 'x') {
-                if (card.cost !== 'X' && card.cost !== 'x') return false;
-            } else {
-                if (parseInt(card.cost) !== parseInt(currentCostFilter)) return false;
-            }
+        if (cost !== 'all') {
+            const cc = card.cost || 0;
+            if (cost === '<3' && cc >= 3) return false;
+            if (cost === '3' && cc !== 3) return false;
+            if (cost === '>3' && cc <= 3) return false;
+            if (cost === 'special' && card.type !== 'Zone' && card.type !== 'Act') return false;
         }
-        
-        if (setFilter !== 'all') {
-            let matchSet = false;
-            if (card.set && card.set.includes(setFilter)) matchSet = true;
-            if (setFilter === 'Bandits Arrival' && (card.id.startsWith('SDBA_') || card.id === 'DW_thebanditcaptain')) matchSet = true;
-            if (setFilter === 'Devout Patronage' && card.id.startsWith('SDDP_')) matchSet = true;
-            if (setFilter === 'Dread Apocalypse' && card.id.startsWith('SDDA_')) matchSet = true;
-            if (setFilter === 'Aurum Guild' && card.id.startsWith('SDAG_')) matchSet = true;
-            if (setFilter === 'Season 0' && card.id.startsWith('S0CL_')) matchSet = true;
-            if (setFilter === 'Season 1' && card.id.startsWith('S1CL_')) matchSet = true;
-            if (setFilter === 'Season 2' && card.id.startsWith('S2CL_')) matchSet = true;
-            if (setFilter === 'Dead Of Winter' && card.id.startsWith('DOW_')) matchSet = true;
-            if (setFilter === 'Power Escalation' && card.id.startsWith('PE_')) matchSet = true;
-            if (setFilter === 'The Vox Populi' && card.id.startsWith('TVP_')) matchSet = true;
-            if (setFilter === 'Blood Money' && card.id.startsWith('BM_')) matchSet = true;
-            if (setFilter === 'Crimson Onslaught' && card.id.startsWith('CO_')) matchSet = true;
-            if (setFilter === 'Dice World' && card.id.startsWith('DW_')) matchSet = true;
-            if (setFilter === 'All Stars' && card.id.startsWith('AS_')) matchSet = true;
-
-            if (!matchSet) return false;
-        }
-
+        if (setFilter !== 'all' && (!card.set || !card.set.includes(setFilter))) return false;
         if (speed !== 'all' && (!card.subtypes || !card.subtypes.includes(speed))) return false;
         if (selectedFilterTypes.size > 0) {
             const matchT = selectedFilterTypes.has(card.type);
@@ -1435,7 +1359,7 @@ function filterCollection() {
                 <button onclick="showCardDetails('${card.id}')" class="bg-stone-800 text-stone-300 hover:text-amber-400 px-1.5 py-0.5 rounded text-[10px] ml-1 shadow font-bold border border-stone-700">[ i ]</button>
             </div>
             <div class="flex-1 overflow-hidden bg-stone-900 rounded flex items-center justify-center p-1 border border-stone-800 cursor-pointer" onclick="addCardToDeck('${card.id}')">
-                <img src="${card.image || 'GoldBurnLogo (1).png'}" class="h-full w-full object-contain" onerror="this.src='GoldBurnLogo (1).png'">
+                <img src="${card.image}" class="h-full w-full object-contain" onerror="this.src='GoldBurnLogo (1).png'">
             </div>
             <div class="text-[10px] text-stone-500 my-1">${card.type} | Cost: ${card.cost||0}</div>
             <button onclick="addCardToDeck('${card.id}')" class="bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-1.5 rounded transition shadow">Add to Deck</button>`;
@@ -1445,20 +1369,26 @@ function filterCollection() {
 
 function handleSubtype(cb) {
     if (cb.checked) selectedFilterTypes.add(cb.value); else selectedFilterTypes.delete(cb.value);
-    document.getElementById('subtype-dropdown-label').textContent = selectedFilterTypes.size > 0 ? `Selected (${selectedFilterTypes.size})` : "Types & Subtypes";
+    const l = document.getElementById('subtype-dropdown-label'); 
+    if(l) l.textContent = selectedFilterTypes.size > 0 ? `Selected (${selectedFilterTypes.size})` : "Types & Subtypes";
     filterCollection();
 }
 
 function showCardDetails(id) {
     const card = MASTER_CARDS.find(c => c.id === id);
     if(!card) return;
-    document.getElementById('cd-img').src = card.image || 'GoldBurnLogo (1).png';
-    document.getElementById('cd-name').textContent = card.name;
-    document.getElementById('cd-stats').textContent = `Cost: ${card.cost||0} | HP: ${card.hp||'-'} | Set: ${card.set||'Core'} | ${card.type} - ${card.subtypes ? card.subtypes.join(', ') : ''}`;
-    document.getElementById('cd-desc').textContent = card.description || 'No description available.';
-    document.getElementById('card-details-modal').classList.remove('hidden');
+    const img = document.getElementById('cd-img'); if(img) img.src = card.image || 'GoldBurnLogo (1).png';
+    const n = document.getElementById('cd-name'); if(n) n.textContent = card.name;
+    const s = document.getElementById('cd-stats'); if(s) s.textContent = `Cost: ${card.cost||0} | HP: ${card.hp||'-'} | Set: ${card.set||'Core'} | ${card.type} - ${card.subtypes ? card.subtypes.join(', ') : ''}`;
+    const d = document.getElementById('cd-desc'); if(d) d.textContent = card.description || 'No description available.';
+    const m = document.getElementById('card-details-modal'); if(m) m.classList.remove('hidden');
 }
-function closeCardDetails(e) { if(e && e.target.id === 'card-details-modal') document.getElementById('card-details-modal').classList.add('hidden'); }
+function closeCardDetails(e) { 
+    if(e && e.target.id === 'card-details-modal') {
+        const m = document.getElementById('card-details-modal');
+        if(m) m.classList.add('hidden');
+    }
+}
 
 function addCardToDeck(id) {
     const card = MASTER_CARDS.find(c => c.id === id);
@@ -1492,9 +1422,9 @@ function renderDeckList() {
     const vitalDisplay = document.getElementById('vital-card-display');
     if (playerState.currentVital) {
         const v = MASTER_CARDS.find(c => c.id === playerState.currentVital);
-        vitalDisplay.textContent = v ? v.name : "None";
+        if(vitalDisplay) vitalDisplay.textContent = v ? v.name : "None";
     } else {
-        vitalDisplay.textContent = "None";
+        if(vitalDisplay) vitalDisplay.textContent = "None";
     }
 
     let total = 0;
@@ -1507,8 +1437,8 @@ function renderDeckList() {
         el.innerHTML = `<span class="text-stone-300 font-bold">${c.name} <span class="text-amber-500">x${count}</span></span> <button onclick="removeCardFromDeck('${id}')" class="text-red-500 hover:text-red-400 font-bold bg-stone-900 px-2 rounded border border-stone-700">X</button>`;
         list.appendChild(el);
     }
-    document.getElementById('deck-count').textContent = `${total} / 30`;
-    document.getElementById('deck-name-input').value = playerState.activeDeckName;
+    const dC = document.getElementById('deck-count'); if(dC) dC.textContent = `${total} / 30`;
+    const dN = document.getElementById('deck-name-input'); if(dN) dN.value = playerState.activeDeckName;
 
     const saved = document.getElementById('saved-decks-select');
     if(saved) {
@@ -1520,23 +1450,26 @@ function renderDeckList() {
 }
 
 function saveCurrentDeck() {
-    const name = document.getElementById('deck-name-input').value.trim() || "Custom Deck";
+    const n = document.getElementById('deck-name-input');
+    const name = n?.value?.trim() || "Custom Deck";
     playerState.customDecks[name] = {...playerState.currentDeck};
     playerState.activeDeckName = name;
     saveLocalDeck(); renderDeckList(); alert("Deck Saved locally!");
 }
 
 function loadSelectedDeck() {
-    const name = document.getElementById('saved-decks-select').value;
+    const n = document.getElementById('saved-decks-select');
+    const name = n?.value;
     if (name && playerState.customDecks[name]) {
         playerState.currentDeck = {...playerState.customDecks[name]};
         playerState.activeDeckName = name;
-        document.getElementById('deck-name-input').value = name;
+        const dN = document.getElementById('deck-name-input'); if(dN) dN.value = name;
         renderDeckList(); saveLocalDeck();
     }
 }
 function deleteSelectedDeck() {
-    const name = document.getElementById('saved-decks-select').value;
+    const n = document.getElementById('saved-decks-select');
+    const name = n?.value;
     if (name) { delete playerState.customDecks[name]; renderDeckList(); saveLocalDeck(); }
 }
 function exportDeckCode() { prompt("Deck Code:", btoa(JSON.stringify({v: playerState.currentVital, m: playerState.currentDeck}))); }
@@ -1549,7 +1482,8 @@ function importDeckCode() {
 }
 
 function equipStarterDeck() {
-    const val = document.getElementById('equip-starter-select').value;
+    const sel = document.getElementById('equip-starter-select');
+    const val = sel?.value;
     if (val && STARTER_DECKS[val]) {
         const isOwned = !playerState.uid ? (val === "Bandits Arrival Starter") : playerState.unlockedCards.includes(val);
         if(!isOwned) return alert("You must buy this deck in the Shop first!");
@@ -1576,7 +1510,7 @@ function buyStoreItem(key, cost) {
                 accountGold: playerState.accountGold, unlockedCards: playerState.unlockedCards 
             });
         }
-        updateUI(); updateSetDropdown(); filterCollection(); renderStoreAndInventory();
+        updateUI(); filterCollection(); renderStoreAndInventory();
     } else { alert("Not enough account gold!"); }
 }
 
@@ -1604,122 +1538,11 @@ function renderStoreAndInventory() {
     });
 }
 
-// --- HISTORY & LEADERBOARD ---
-function renderHistory() {
-    const list = document.getElementById('history-list');
-    if(!list) return;
-    list.innerHTML = '';
-    const history = playerState.matchHistory || [];
-    if(history.length === 0) {
-        list.innerHTML = '<p class="text-stone-500 text-xs">No match history available.</p>';
-        return;
-    }
-    history.forEach(h => {
-        list.innerHTML += `
-            <div class="bg-stone-900 border ${h.result === 'Victory' ? 'border-amber-500/50' : 'border-red-900/50'} p-3 rounded flex justify-between items-center shadow">
-                <div>
-                    <div class="font-bold ${h.result === 'Victory' ? 'text-amber-400' : 'text-red-400'}">${h.result} vs ${h.oppName}</div>
-                    <div class="text-[10px] text-stone-500">${h.mode.toUpperCase()} - ${h.date}</div>
-                </div>
-                <button onclick="viewOpponentDeck(${h.id})" class="bg-stone-800 hover:bg-stone-700 text-stone-200 px-3 py-1.5 rounded text-xs font-bold border border-stone-600 transition shadow">View Opponent's Deck</button>
-            </div>
-        `;
-    });
-}
-
-function viewOpponentDeck(id) {
-    const hist = (playerState.matchHistory || []).find(h => h.id === id);
-    if(!hist || !hist.oppDeck) return alert("Deck data not available.");
-    const m = document.getElementById('peer-modal');
-    const g = document.getElementById('peer-grid');
-    document.getElementById('peer-modal-title').textContent = `${hist.oppName}'s Deck`;
-    document.getElementById('peer-card-actions').classList.add('hidden');
-    g.innerHTML = '';
-    
-    let cards = hist.oppDeck.map(cid => MASTER_CARDS.find(c => c.id === cid)).filter(Boolean);
-    cards.sort((a,b) => a.name.localeCompare(b.name));
-    
-    cards.forEach(c => {
-        g.innerHTML += `<div class="bg-stone-900 border-2 border-stone-700 rounded p-1">
-            <img src="${c.image || 'GoldBurnLogo (1).png'}" class="w-full h-auto object-contain" onerror="this.src='GoldBurnLogo (1).png'">
-        </div>`;
-    });
-    m.classList.remove('hidden');
-}
-
-async function loadLeaderboard() {
-    const list = document.getElementById('leaderboard-list');
-    const userPlacement = document.getElementById('leaderboard-user-placement');
-    if(!list) return;
-    list.innerHTML = '<p class="text-stone-500 text-xs">Loading leaderboard...</p>';
-    userPlacement.innerHTML = '';
-    
-    try {
-        const snap = await db.collection('players').get();
-        let players = [];
-        snap.forEach(d => {
-            let data = d.data();
-            players.push({
-                uid: d.id,
-                name: data.displayName || "Unknown",
-                rank: data.rank || "Copper",
-                xp: data.xp || 0,
-                rankIndex: RANKS.indexOf(data.rank || "Copper")
-            });
-        });
-        
-        players.sort((a,b) => {
-            if(b.rankIndex !== a.rankIndex) return b.rankIndex - a.rankIndex;
-            return b.xp - a.xp;
-        });
-        
-        list.innerHTML = '';
-        players.slice(0, 10).forEach((p, idx) => {
-            const isMe = p.uid === playerState.uid;
-            list.innerHTML += `
-                <div class="bg-stone-900 border ${isMe ? 'border-amber-500' : 'border-stone-800'} p-3 rounded flex items-center shadow">
-                    <div class="text-xl font-bold text-stone-600 w-8">#${idx + 1}</div>
-                    <div class="flex-1">
-                        <div class="font-bold text-stone-200">${p.name}</div>
-                    </div>
-                    <div class="text-right">
-                        <div class="text-amber-400 font-bold">${p.rank}</div>
-                        <div class="text-[10px] text-stone-500">${p.xp} / 100 XP</div>
-                    </div>
-                </div>
-            `;
-        });
-        
-        if (playerState.uid) {
-            const myIndex = players.findIndex(p => p.uid === playerState.uid);
-            if (myIndex !== -1) {
-                const myP = players[myIndex];
-                userPlacement.innerHTML = `
-                    <div class="bg-stone-950 border border-amber-600 p-3 rounded flex items-center shadow mt-4">
-                        <div class="text-xl font-bold text-amber-600 w-12 text-center">#${myIndex + 1}</div>
-                        <div class="flex-1 ml-4">
-                            <div class="font-bold text-amber-400">You (${myP.name})</div>
-                        </div>
-                        <div class="text-right">
-                            <div class="text-amber-400 font-bold">${myP.rank}</div>
-                            <div class="text-[10px] text-stone-500">${myP.xp} / 100 XP</div>
-                        </div>
-                    </div>
-                `;
-            }
-        }
-    } catch (e) {
-        list.innerHTML = '<p class="text-red-500 text-xs">Error loading leaderboard.</p>';
-    }
-}
-
 function updateUI() { 
     const el = document.getElementById('account-gold-display');
     if(el) el.textContent = playerState.accountGold; 
     const rankEl = document.getElementById('profile-rank');
     if(rankEl) rankEl.textContent = playerState.rank;
-    const xpEl = document.getElementById('profile-xp');
-    if(xpEl) xpEl.textContent = playerState.xp || 0;
 }
 function testDeckInSandbox(){ currentRoomId="SANDBOX"; showVitalLobby('sandbox'); }
-window.onload = () => { loadLocalDeck(); loadLocalHistory(); updateUI(); updateSetDropdown(); filterCollection(); renderDeckList(); renderStoreAndInventory(); };
+window.onload = () => { loadLocalDeck(); updateUI(); filterCollection(); renderDeckList(); renderStoreAndInventory(); };
