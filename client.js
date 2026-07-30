@@ -188,13 +188,29 @@ async function queueMatch(mode) {
     btn.classList.replace('bg-amber-600', 'bg-red-700');
 
     let joined = false;
-    const query = db.collection('rooms').where('mode', '==', mode).where('status', '==', 'WAITING');
+    const myRankIndex = RANKS.indexOf(playerState.rank);
+    
+    const query = db.collection('rooms')
+        .where('mode', '==', mode)
+        .where('status', '==', 'WAITING');
     
     activeQueueUnsub = query.onSnapshot(snap => {
         if(!joined && !snap.empty) {
-            joined = true; activeQueueUnsub(); gameState.activeQueueMode = null;
-            btn.textContent = origText; btn.classList.replace('bg-red-700', 'bg-amber-600');
-            joinMatch(mode, null, snap.docs[0].id);
+            let validRoom = null;
+            snap.docs.forEach(doc => {
+                const data = doc.data();
+                if(data.hostRankIndex !== undefined) {
+                    if (Math.abs(data.hostRankIndex - myRankIndex) <= 1) validRoom = doc;
+                } else {
+                    validRoom = doc; 
+                }
+            });
+
+            if (validRoom) {
+                joined = true; activeQueueUnsub(); gameState.activeQueueMode = null;
+                btn.textContent = origText; btn.classList.replace('bg-red-700', 'bg-amber-600');
+                joinMatch(mode, null, validRoom.id);
+            }
         }
     });
 
@@ -223,7 +239,8 @@ async function hostMatch(mode) {
     };
 
     const roomRef = await db.collection('rooms').add({
-        hostUid: getPlayerId(), mode: mode, roomCode: roomCode, 
+        hostUid: getPlayerId(), hostRankIndex: RANKS.indexOf(playerState.rank),
+        mode: mode, roomCode: roomCode, 
         status: mode === 'custom' ? 'PRE_LOBBY' : 'WAITING',
         lockedVitals: 0, players: { [getPlayerId()]: initialPlayer }, turnOrder: [], activeTurnUid: null,
         rules: { starter: false, health: false, noZone: false, maxPlayers: 2 },
@@ -382,7 +399,7 @@ function lockInVital() {
         const v = gameState.deck.splice(vIdx, 1)[0];
         if(gameState.rules && gameState.rules.health) { v.currentHp = Math.max(1, Math.floor(v.hp/2)); }
         
-        const dbReg = pendingVitalSlot.region === 'playerFront' ? 'front' : 'back';
+        const dbReg = pendingVitalSlot.region === 'front' ? 'front' : 'back';
         gameState.players[getPlayerId()][dbReg][pendingVitalSlot.idx] = v;
     }
     
@@ -413,7 +430,7 @@ function loadDeckIntoGameState(deckToLoad = playerState.currentDeck, vitalToLoad
     }
     const vCard = MASTER_CARDS.find(c => c.id === vitalToLoad);
     if(vCard) gameState.deck.push({...vCard, instanceId: Math.random().toString(36).substr(2,9), currentHp: vCard.hp, markers: {}, exhausted: false});
-    if(!gameState.players[getPlayerId()]) gameState.players[getPlayerId()] = {front:[null,null,null], back:[null,null,null], center:[null,null,null], gy:[], void:[], gold:0, handCache:[]};
+    if(!gameState.players[getPlayerId()]) gameState.players[getPlayerId()] = {front:[null,null,null], back:[null,null,null], center:[null,null,null], gy:[], void:[], gold:0, handCache:[], deckCache:[]};
 }
 
 function enterMatch() {
@@ -536,6 +553,7 @@ function broadcastState() {
     if (currentRoomId === "SANDBOX" || !currentRoomId || !gameState.players[getPlayerId()]) return;
     gameState.players[getPlayerId()].deckCount = gameState.deck.length;
     gameState.players[getPlayerId()].handCache = gameState.hand; 
+    gameState.players[getPlayerId()].deckCache = gameState.deck; 
     const pData = JSON.parse(JSON.stringify(gameState.players[getPlayerId()]));
     db.collection('rooms').doc(currentRoomId).update({ [`players.${getPlayerId()}`]: pData }).catch(e=>console.error(e));
 }
@@ -583,7 +601,6 @@ function renderVTT() {
 
     document.getElementById('deck-count-hud').textContent = gameState.deck.length;
     document.getElementById('match-gold-val').textContent = myP.gold || 0;
-    document.getElementById('profile-rank').textContent = playerState.rank;
     
     const toPanel = document.getElementById('turn-order-list');
     toPanel.innerHTML = '';
@@ -602,7 +619,12 @@ function renderVTT() {
             div.innerHTML = `<img src="${card.image}" class="card-img-full bg-stone-900 p-1" onerror="this.src='GoldBurnLogo (1).png'">`;
             div.onclick = (e) => {
                 e.stopPropagation();
-                if(gameState.activeTurnUid !== myUid && currentRoomId !== "SANDBOX") return;
+                
+                const isMyTurn = gameState.activeTurnUid === myUid || currentRoomId === "SANDBOX";
+                let canPlay = isMyTurn;
+                if (card.type === 'Act' && card.subtypes && card.subtypes.includes('Fast')) canPlay = true;
+                if (!canPlay) return;
+
                 selectedHandIndex = selectedHandIndex === idx ? null : idx;
                 activeInsSlot = null; gameState.moveMode = false; gameState.targetMode = false;
                 if(selectedHandIndex !== null) inspectCard(card, 'hand', idx); else inspectEmpty();
@@ -612,57 +634,97 @@ function renderVTT() {
         });
     }
 
-    const oppContainer = document.getElementById('opponents-container'); oppContainer.innerHTML = '';
-    Object.entries(gameState.players).forEach(([uid, p]) => {
-        if (uid === myUid || p.spectator) return;
-        let shouldRenderHandOverlay = '';
-        if(gameState.spectatorVision[uid] && p.handCache && p.handCache.length > 0) {
-            let hH = `<div class="absolute inset-0 bg-black/90 z-30 flex items-center justify-center p-2 gap-1 overflow-x-auto rounded-xl">`;
-            p.handCache.forEach(c => hH += `<img src="${c.image}" class="h-full object-contain border border-amber-500 rounded" onerror="this.src='GoldBurnLogo (1).png'">`);
-            hH += `</div>`;
-            shouldRenderHandOverlay = hH;
-        }
+    const opps = Object.keys(gameState.players).filter(u => u !== myUid && !gameState.players[u].spectator);
+    const multiContainer = document.getElementById('opponents-container');
+    const soloContainer = document.getElementById('opp-1v1-board');
 
-        const oppHtml = `
-            <div class="flex flex-col gap-2 relative bg-stone-900/50 p-2 rounded-xl border border-stone-800" id="board-${uid}">
-                ${shouldRenderHandOverlay}
-                <div class="flex items-center gap-2 mb-1"><img src="${p.photo}" class="w-6 h-6 rounded-full"><span class="text-amber-400 text-xs font-bold">${p.name}</span> <span class="ml-auto text-xs text-stone-400">Cards: ${p.deckCount} | Gold: <span class="text-amber-500">${p.gold}</span></span></div>
-                <div class="flex gap-4">
-                    <div class="flex flex-col gap-2">
-                        <div class="flex gap-2">
-                            ${[0,1,2].map(i => renderSlotHtml(p.back[i], uid, 'back', i, true)).join('')}
-                        </div>
-                        <div class="flex gap-2">
-                            ${[0,1,2].map(i => renderSlotHtml(p.front[i], uid, 'front', i, true)).join('')}
-                        </div>
-                    </div>
-                    <div class="flex flex-col gap-2 justify-center">
-                        <div class="w-12 h-16 bg-[#050505] border border-purple-900/50 rounded flex items-center justify-center text-[8px] text-purple-700">V [${p.void?p.void.length:0}]</div>
-                        <div class="w-12 h-16 bg-stone-950 border border-stone-800 rounded flex items-center justify-center text-[8px] text-stone-500">GY [${p.gy?p.gy.length:0}]</div>
-                    </div>
+    if (opps.length === 1) {
+        multiContainer.classList.add('hidden');
+        soloContainer.classList.remove('hidden');
+        const oppUid = opps[0];
+        const p = gameState.players[oppUid];
+        
+        soloContainer.innerHTML = `
+            <div class="flex items-center gap-2 mb-2 absolute top-0 left-4"><img src="${p.photo}" class="w-8 h-8 rounded-full border border-amber-500"><span class="text-amber-400 font-bold">${p.name}</span></div>
+            <div class="flex flex-col gap-2 w-24">
+                <div class="bg-stone-900 border border-stone-800 p-2 rounded text-center shadow">
+                    <span class="text-amber-400 font-bold text-xs">Gold</span><br>
+                    <span class="text-stone-100 text-lg">${p.gold}</span>
                 </div>
-            </div>`;
-        oppContainer.innerHTML += oppHtml;
-    });
+                <div class="board-slot bg-stone-950 border border-stone-700 rounded flex items-center justify-center text-xs text-stone-500 font-bold cursor-pointer hover:border-stone-400 transition" onclick="openPeerModal('${oppUid}', 'gy')">GRAVE YARD [${p.gy ? p.gy.length : 0}]</div>
+                <div class="board-slot bg-[#050505] border border-purple-900/50 rounded flex items-center justify-center text-xs text-purple-800 font-bold cursor-pointer hover:border-purple-500 transition" onclick="openPeerModal('${oppUid}', 'void')">VOID [${p.void ? p.void.length : 0}]</div>
+            </div>
+            
+            <div class="flex flex-col gap-2">
+                <div class="flex gap-2" id="opp-back-row">
+                    ${[0,1,2].map(i => renderSlotHtml(p.back[i], oppUid, 'back', i, true)).join('')}
+                </div>
+                <div class="flex gap-2" id="opp-front-row">
+                    ${[0,1,2].map(i => renderSlotHtml(p.front[i], oppUid, 'front', i, true)).join('')}
+                </div>
+            </div>
 
-    ['playerFront', 'playerBack', 'center'].forEach(region => {
+            <div class="flex flex-col gap-2 w-24">
+                <div class="board-slot bg-stone-950 border border-stone-700 rounded flex items-center justify-center text-xs text-amber-500 font-bold cursor-pointer hover:border-amber-400 transition bg-[url('GoldBurnLogo (1).png')] bg-cover bg-center bg-blend-overlay bg-black/80" onclick="openPeerModal('${oppUid}', 'deck')">DECK [${p.deckCount}]</div>
+            </div>
+        `;
+    } else {
+        soloContainer.classList.add('hidden');
+        multiContainer.classList.remove('hidden');
+        multiContainer.innerHTML = '';
+        opps.forEach(uid => {
+            const p = gameState.players[uid];
+            let shouldRenderHandOverlay = '';
+            if(gameState.spectatorVision[uid] && p.handCache && p.handCache.length > 0) {
+                let hH = `<div class="absolute inset-0 bg-black/90 z-30 flex items-center justify-center p-2 gap-1 overflow-x-auto rounded-xl">`;
+                p.handCache.forEach(c => hH += `<img src="${c.image}" class="h-full object-contain border border-amber-500 rounded" onerror="this.src='GoldBurnLogo (1).png'">`);
+                hH += `</div>`;
+                shouldRenderHandOverlay = hH;
+            }
+
+            const oppHtml = `
+                <div class="flex flex-col gap-2 relative bg-stone-900/50 p-2 rounded-xl border border-stone-800" id="board-${uid}">
+                    ${shouldRenderHandOverlay}
+                    <div class="flex items-center gap-2 mb-1"><img src="${p.photo}" class="w-6 h-6 rounded-full"><span class="text-amber-400 text-xs font-bold">${p.name}</span> <span class="ml-auto text-xs text-stone-400">Cards: ${p.deckCount} | Gold: <span class="text-amber-500">${p.gold}</span></span></div>
+                    <div class="flex gap-4">
+                        <div class="flex flex-col gap-2">
+                            <div class="flex gap-2">
+                                ${[0,1,2].map(i => renderSlotHtml(p.back[i], uid, 'back', i, true)).join('')}
+                            </div>
+                            <div class="flex gap-2">
+                                ${[0,1,2].map(i => renderSlotHtml(p.front[i], uid, 'front', i, true)).join('')}
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2 justify-center">
+                            <div class="w-12 h-16 bg-[#050505] border border-purple-900/50 rounded flex items-center justify-center text-[8px] text-purple-700 cursor-pointer" onclick="openPeerModal('${uid}', 'void')">V [${p.void?p.void.length:0}]</div>
+                            <div class="w-12 h-16 bg-stone-950 border border-stone-800 rounded flex items-center justify-center text-[8px] text-stone-500 cursor-pointer" onclick="openPeerModal('${uid}', 'gy')">GY [${p.gy?p.gy.length:0}]</div>
+                            <div class="w-12 h-16 bg-stone-950 border border-amber-800/50 rounded flex items-center justify-center text-[8px] text-amber-500 cursor-pointer" onclick="openPeerModal('${uid}', 'deck')">DECK [${p.deckCount}]</div>
+                        </div>
+                    </div>
+                </div>`;
+            multiContainer.innerHTML += oppHtml;
+        });
+    }
+
+    ['front', 'back', 'center'].forEach(region => {
         const max = 3;
         const isCenter = region === 'center';
-        const dbRegion = isCenter ? 'center' : (region === 'playerFront' ? 'front' : 'back');
+        const htmlIdPrefix = isCenter ? 'center' : (region === 'front' ? 'playerFront' : 'playerBack');
+        
         for(let idx=0; idx<max; idx++) {
-            const el = document.getElementById(`${region}-${idx}`);
+            const el = document.getElementById(`${htmlIdPrefix}-${idx}`);
             if(!el) continue;
             let card = null;
             let renderUid = myUid;
+            
             if(isCenter && idx === 0) {
-                const opps = Object.keys(gameState.players).filter(u=>u!==myUid && !gameState.players[u].spectator);
                 if(opps.length > 0) { renderUid = opps[0]; card = gameState.players[renderUid].center[2]; } 
             } else if (isCenter && idx === 1) {
                  card = myP.center[1]; 
             } else {
-                 card = myP[dbRegion][idx];
+                 card = myP[region][idx];
             }
-            el.outerHTML = renderSlotHtml(card, renderUid, dbRegion, idx, false, isCenter, region);
+            el.outerHTML = renderSlotHtml(card, renderUid, region, idx, false, isCenter, htmlIdPrefix);
         }
     });
 
@@ -671,16 +733,18 @@ function renderVTT() {
     ['gy','void'].forEach(z => {
         const el = document.getElementById(`${z}-visual`); if(!el) return;
         const arr = myP[z] || [];
-        el.innerHTML = arr.length > 0 ? `<img src="${arr[arr.length-1].image}" class="absolute inset-0 w-full h-full object-cover opacity-60" onerror="this.src='GoldBurnLogo (1).png'"><span class="z-10 bg-black/80 px-2 rounded">${z.toUpperCase()} [${arr.length}]</span>` : `<span class="z-10 bg-black/80 px-2 rounded">${z.toUpperCase()} [0]</span>`;
+        const label = z === 'gy' ? 'GRAVE YARD' : 'VOID';
+        el.innerHTML = arr.length > 0 ? `<img src="${arr[arr.length-1].image}" class="absolute inset-0 w-full h-full object-cover opacity-60" onerror="this.src='GoldBurnLogo (1).png'"><span class="z-10 bg-black/80 px-2 rounded">${label} [${arr.length}]</span>` : `<span class="z-10 bg-black/80 px-2 rounded">${label} [0]</span>`;
     });
 }
 
 function renderSlotHtml(card, uid, region, idx, isOpp, isCenter=false, htmlIdPrefix='') {
-    const sId = isCenter ? `${htmlIdPrefix}-${idx}` : (isOpp ? `${uid}-${region}-${idx}` : `player${region==='front'?'Front':'Back'}-${idx}`);
+    const sId = isCenter ? `center-${idx}` : (isOpp ? `${uid}-${region}-${idx}` : `player${region==='front'?'Front':'Back'}-${idx}`);
     if (card) {
         let mh = ''; for(let [c, a] of Object.entries(card.markers||{})) { if(a>0) mh += `<div class="marker-dot bg-${c==='black'?'stone-800':c+'-500'}">${a}</div>`; }
-        const sel = activeInsSlot && activeInsSlot.region === (isCenter?htmlIdPrefix:region) && activeInsSlot.index === idx;
-        return `<div id="${sId}" onclick="event.stopPropagation(); inspectFromBoard('${uid}','${region}',${idx},${isOpp},'${htmlIdPrefix}')" class="board-slot bg-stone-900 border-2 ${sel?'border-amber-400 scale-[1.02] shadow-xl z-10':(isOpp?'border-red-900/50':'border-amber-600/50')} rounded overflow-hidden cursor-pointer">
+        const dbRegion = isCenter ? 'center' : region;
+        const sel = activeInsSlot && activeInsSlot.region === dbRegion && activeInsSlot.index === idx;
+        return `<div id="${sId}" onclick="event.stopPropagation(); inspectFromBoard('${uid}','${dbRegion}',${idx},${isOpp})" class="board-slot bg-stone-900 border-2 ${sel?'border-amber-400 scale-[1.02] shadow-xl z-10':(isOpp?'border-red-900/50':'border-amber-600/50')} rounded overflow-hidden cursor-pointer">
             <img src="${card.image}" class="card-img-full bg-black ${card.exhausted?'opacity-50':''}" onerror="this.src='GoldBurnLogo (1).png'">
             ${card.exhausted ? `<div class="zzz-overlay bg-black/80 px-1 rounded text-[10px]">USED</div>` : ''}
             ${card.currentHp!==undefined ? `<div class="hp-badge">${card.currentHp}</div>` : ''}
@@ -689,7 +753,9 @@ function renderSlotHtml(card, uid, region, idx, isOpp, isCenter=false, htmlIdPre
     } else {
         const mt = gameState.moveMode && !isOpp && (!isCenter || idx!==0);
         let txt = 'EMPTY'; if(isCenter) txt = idx===1?'SHARED':(idx===0?'OPP ACT':'YOUR ACT');
-        return `<div id="${sId}" onclick="event.stopPropagation(); handleEmptySlotClick('${isCenter?htmlIdPrefix:(region==='front'?'playerFront':'playerBack')}', ${idx})" class="board-slot bg-stone-800/20 border-2 border-stone-700 rounded flex items-center justify-center text-[10px] text-stone-500 font-bold ${mt?'move-target':''}">
+        const dbRegion = isCenter ? 'center' : region;
+        const clickEvent = !isOpp || isCenter ? `onclick="event.stopPropagation(); handleEmptySlotClick('${dbRegion}', ${idx})"` : '';
+        return `<div id="${sId}" ${clickEvent} class="board-slot bg-stone-800/20 border-2 border-stone-700 rounded flex items-center justify-center text-[10px] text-stone-500 font-bold ${mt?'move-target':''}">
             ${txt}
         </div>`;
     }
@@ -706,33 +772,33 @@ function renderSpectatorCheckboxes() {
 }
 function toggleSpecVision(uid, checked) { gameState.spectatorVision[uid] = checked; renderVTT(); }
 
-function inspectFromBoard(uid, region, idx, isOpp, centerPrefix) {
+function inspectFromBoard(uid, dbRegion, idx, isOpp) {
+    const card = gameState.players[uid][dbRegion][idx];
+    if(!card) return;
+
     if (gameState.targetMode) {
-        const tId = centerPrefix ? `${centerPrefix}-${idx}` : (isOpp ? `${uid}-${region}-${idx}` : `player${region==='front'?'Front':'Back'}-${idx}`);
-        return finishTargeting(tId);
+        return finishTargeting(uid, dbRegion, idx);
     }
     if (gameState.moveMode) return;
     
     selectedHandIndex = null;
-    const dbRegion = centerPrefix ? 'center' : region;
-    const card = gameState.players[uid][dbRegion][idx];
-    activeInsSlot = { uid, region: centerPrefix || (region==='front'?'playerFront':'playerBack'), index: idx, dbRegion };
-    inspectCard(card, activeInsSlot.region, idx, isOpp);
+    activeInsSlot = { uid, region: dbRegion, index: idx };
+    inspectCard(card, dbRegion, idx, isOpp);
     renderVTT();
 }
 
 function handleEmptySlotClick(region, index) {
-    if(gameState.activeTurnUid !== getPlayerId() && currentRoomId !== "SANDBOX") return;
-    
     if (gameState.moveMode) return finishMoving(region, index);
-    if (gameState.targetMode) {
-        const tId = (region === 'center') ? `center-${index}` : `player${region === 'playerFront' ? 'Front' : 'Back'}-${index}`;
-        return finishTargeting(tId);
-    }
+    if (gameState.targetMode) return finishTargeting(getPlayerId(), region, index);
 
     if (selectedHandIndex !== null) {
         const card = gameState.hand[selectedHandIndex];
         const myP = gameState.players[getPlayerId()];
+        
+        const isMyTurn = gameState.activeTurnUid === getPlayerId() || currentRoomId === "SANDBOX";
+        let canPlay = isMyTurn;
+        if (card.type === 'Act' && card.subtypes && card.subtypes.includes('Fast')) canPlay = true;
+        if (!canPlay) return alert("It is not your turn!");
         
         if (card.type === 'Act' && (region !== 'center' || index !== 2)) return alert("Act cards can only go in YOUR ACT slot.");
         if (card.type === 'Zone' && (region !== 'center' || index !== 1)) return alert("Zone cards can only go in SHARED ZONE.");
@@ -744,20 +810,20 @@ function handleEmptySlotClick(region, index) {
         myP.gold -= (card.cost||0);
 
         gameState.hand.splice(selectedHandIndex, 1);
-        const dbReg = region==='center'?'center':(region==='playerFront'?'front':'back');
-        myP[dbReg][index] = card;
+        myP[region][index] = card;
         
         selectedHandIndex = null; activeInsSlot = null;
         logAction(`Deployed ${card.name}.`);
         renderVTT(); inspectEmpty(); broadcastState();
     } else {
-        activeInsSlot = { region, index }; showEmptyInspector(); renderVTT();
+        activeInsSlot = { uid: getPlayerId(), region, index }; 
+        showEmptyInspector(); renderVTT();
     }
 }
 
 function finishMoving(region, index) {
     const myP = gameState.players[getPlayerId()];
-    const sReg = gameState.moveSource.dbRegion; const sIdx = gameState.moveSource.index;
+    const sReg = gameState.moveSource.region; const sIdx = gameState.moveSource.index;
     const card = myP[sReg][sIdx];
     
     if (card.type === 'Act' && (region !== 'center' || index !== 2)) return alert("Act cards can only go in YOUR ACT slot.");
@@ -766,13 +832,13 @@ function finishMoving(region, index) {
     if (card.type !== 'Zone' && region === 'center' && index === 1) return alert("Only Zone cards can go in SHARED.");
     if (region === 'center' && index === 0) return alert("Cannot play in opponent's act slot.");
 
-    const tReg = region==='center'?'center':(region==='playerFront'?'front':'back');
-    myP[sReg][sIdx] = null; myP[tReg][index] = card;
+    myP[sReg][sIdx] = null; myP[region][index] = card;
     gameState.moveMode = false; gameState.moveSource = null; activeInsSlot = null;
     logAction(`Moved ${card.name}.`); renderVTT(); inspectEmpty(); broadcastState();
 }
 
 function inspectCard(card, region, idx, isOpp=false) {
+    if(!card) return;
     document.getElementById('ins-img').src = card.image || 'GoldBurnLogo (1).png';
     document.getElementById('ins-name').textContent = card.name;
     document.getElementById('ins-stats').textContent = `${card.type} | ${card.subtypes ? card.subtypes.join(', ') : ''}`;
@@ -810,7 +876,9 @@ function enlargeImage() {
 
 // --- ACTIONS ---
 function drawCard() {
-    if(gameState.activeTurnUid !== getPlayerId() && currentRoomId !== "SANDBOX") return;
+    const myUid = getPlayerId();
+    const isMyTurn = gameState.activeTurnUid === myUid || currentRoomId === "SANDBOX";
+    if(!isMyTurn && currentRoomId !== "SANDBOX") return;
     if(gameState.deck.length===0) return;
     gameState.hand.push(gameState.deck.shift()); logAction("Drew card."); renderVTT(); broadcastState();
 }
@@ -839,8 +907,8 @@ function processPlayerElimination() {
 }
 
 function editCardHP(dir) {
-    if(!activeInsSlot) return;
-    const card = gameState.players[getPlayerId()][activeInsSlot.dbRegion][activeInsSlot.index];
+    if(!activeInsSlot || activeInsSlot.uid !== getPlayerId()) return alert("Can't modify opponent's card HP.");
+    const card = gameState.players[getPlayerId()][activeInsSlot.region][activeInsSlot.index];
     card.currentHp += dir; document.getElementById('ins-hp-val').textContent = card.currentHp;
     logAction(`HP to ${card.currentHp}`);
     
@@ -851,29 +919,34 @@ function editCardHP(dir) {
     }
 }
 function editMarker(c, d) {
-    const card = gameState.players[getPlayerId()][activeInsSlot.dbRegion][activeInsSlot.index];
+    if(!activeInsSlot || activeInsSlot.uid !== getPlayerId()) return alert("Can't modify opponent's markers.");
+    const card = gameState.players[getPlayerId()][activeInsSlot.region][activeInsSlot.index];
     card.markers[c] = Math.max(0, (card.markers[c]||0)+d);
     document.getElementById(`ins-m-${c}`).textContent = card.markers[c]; renderVTT(); broadcastState();
 }
 function discardHandCard() { const c = gameState.hand.splice(selectedHandIndex,1)[0]; gameState.players[getPlayerId()].gy.push(c); selectedHandIndex=null; renderVTT(); inspectEmpty(); broadcastState(); }
+
 function sendToZone(z) {
-    const card = gameState.players[getPlayerId()][activeInsSlot.dbRegion][activeInsSlot.index];
-    gameState.players[getPlayerId()][activeInsSlot.dbRegion][activeInsSlot.index] = null;
+    if(!activeInsSlot || activeInsSlot.uid !== getPlayerId()) return alert("Can't move opponent's card.");
+    const card = gameState.players[getPlayerId()][activeInsSlot.region][activeInsSlot.index];
+    gameState.players[getPlayerId()][activeInsSlot.region][activeInsSlot.index] = null;
     gameState.players[getPlayerId()][z].push(card); activeInsSlot=null; inspectEmpty(); renderVTT(); broadcastState();
 }
+
 function moveZoneCard(f,t,i) {
+    if(!activeInsSlot || activeInsSlot.uid !== getPlayerId()) return alert("Can't move opponent's card.");
     const p = gameState.players[getPlayerId()]; const c = p[f].splice(i,1)[0];
     if(t==='hand') gameState.hand.push(c); else if(t==='deck') { gameState.deck.push(c); gameState.deck.sort(()=>Math.random()-0.5); } else p[t].push(c);
     activeInsSlot=null; inspectEmpty(); renderVTT(); broadcastState();
 }
+
 function createToken() {
     const n = prompt("Name:"); if(!n) return;
     const t = { name: n, type: 'Token', hp: 1, currentHp: 1, markers: {}, image: 'GoldBurnLogo (1).png', description: 'Token', exhausted: false };
-    const r = activeInsSlot.region==='center'?'center':(activeInsSlot.region==='playerFront'?'front':'back');
-    gameState.players[getPlayerId()][r][activeInsSlot.index] = t; activeInsSlot=null; inspectEmpty(); renderVTT(); broadcastState();
+    gameState.players[getPlayerId()][activeInsSlot.region][activeInsSlot.index] = t; activeInsSlot=null; inspectEmpty(); renderVTT(); broadcastState();
 }
 
-// Targeting Sync
+// Targeting Sync - Absolute Coordinates
 function startTargeting(e) { 
     if(e) e.stopPropagation();
     if(activeInsSlot.region === 'hand') return alert("Play to the board first to target.");
@@ -881,23 +954,39 @@ function startTargeting(e) {
 }
 function startMoving(e) {
     if(e) e.stopPropagation();
+    if(activeInsSlot.uid !== getPlayerId()) return alert("Can't move opponent's card.");
     gameState.moveMode = true; gameState.moveSource = activeInsSlot; logAction("Select empty slot...");
 }
-function finishTargeting(targetDomId) {
+function finishTargeting(tUid, tRegion, tIndex) {
     gameState.targetMode = false;
     const s = gameState.targetSource;
-    const sId = s.region==='center' ? `center-${s.index}` : `player${s.region==='playerFront'?'Front':'Back'}-${s.index}`;
-    const card = gameState.players[getPlayerId()][s.dbRegion][s.index]; if(card) card.exhausted = true;
+    const sCard = gameState.players[s.uid][s.region][s.index];
+    if(sCard) sCard.exhausted = true;
+    
+    const payload = { id: Date.now(), s: {uid: s.uid, reg: s.region, idx: s.index}, t: {uid: tUid, reg: tRegion, idx: tIndex} };
     
     if(currentRoomId !== "SANDBOX") {
-        db.collection('rooms').doc(currentRoomId).update({ lastTarget: { id: Date.now(), sId, tId: targetDomId } });
-    } else { drawTargetLine({sId, tId: targetDomId}); }
+        db.collection('rooms').doc(currentRoomId).update({ lastTarget: payload });
+    } else { drawTargetLine(payload); }
     renderVTT(); broadcastState();
 }
 function drawTargetLine(data) {
-    const svg = document.getElementById('targeting-line-container'); const line = document.getElementById('targeting-line');
-    const sEl = document.getElementById(data.sId); const tEl = document.getElementById(data.tId);
+    const resolveDomId = (targetData) => {
+        const {uid, reg, idx} = targetData;
+        if (reg === 'center') {
+            if (uid === getPlayerId()) return `center-${idx}`;
+            const inverted = idx === 2 ? 0 : (idx === 0 ? 2 : 1);
+            return `center-${inverted}`;
+        } else {
+            if (uid === getPlayerId()) return `player${reg==='front'?'Front':'Back'}-${idx}`;
+            return `${uid}-${reg}-${idx}`;
+        }
+    };
+
+    const sEl = document.getElementById(resolveDomId(data.s)); 
+    const tEl = document.getElementById(resolveDomId(data.t));
     if(sEl && tEl) {
+        const svg = document.getElementById('targeting-line-container'); const line = document.getElementById('targeting-line');
         const cont = document.getElementById('game-view').getBoundingClientRect();
         const sr = sEl.getBoundingClientRect(); const tr = tEl.getBoundingClientRect();
         svg.classList.remove('hidden');
@@ -910,23 +999,6 @@ function drawTargetLine(data) {
 // Chat, Dice & Commands
 function sendChat() {
     const input = document.getElementById('chat-input'); const msg = input.value.trim(); if(!msg) return; input.value = '';
-    
-    if(msg.startsWith('/')) {
-        const p = msg.split(' '); const cmd = p[0];
-        if(currentRoomId !== "SANDBOX") return alert("Commands only in Sandbox.");
-        if(cmd === '/help') logAction("Cmds: /addtohand {ID} {AMT}, /enemy");
-        else if(cmd === '/addtohand' && p[1]) {
-            const c = MASTER_CARDS.find(x=>x.id===p[1]); const amt = parseInt(p[2])||1;
-            if(c) { for(let i=0;i<amt;i++) gameState.hand.push({...c, instanceId:Math.random().toString(), currentHp:c.hp, markers:{}, exhausted:false}); logAction(`Added ${amt} ${c.name}`); renderVTT(); }
-        }
-        else if(cmd === '/enemy') {
-            const my = gameState.players[getPlayerId()];
-            let tf = my.front; my.front = my.back; my.back = tf; 
-            logAction("Swapped rows."); renderVTT(); broadcastState();
-        }
-        return;
-    }
-    
     if(currentRoomId !== "SANDBOX") db.collection('rooms').doc(currentRoomId).update({ chat: firebase.firestore.FieldValue.arrayUnion({ uid: getPlayerId(), name: playerState.displayName, msg }) });
     else { const cb = document.getElementById('chat-log'); cb.innerHTML += `<div><span class="text-green-500 font-bold">You:</span> ${msg}</div>`; cb.scrollTop = cb.scrollHeight; }
 }
@@ -956,18 +1028,59 @@ function endTurn() {
     logAction("Ended turn."); broadcastState();
 }
 
-function openZoneModal(z) {
-    const arr = gameState.players[getPlayerId()][z]; if(!arr || arr.length===0) return;
-    document.getElementById('zone-modal-title').textContent = z;
-    const g = document.getElementById('zone-grid'); g.innerHTML = '';
-    arr.forEach((c,i) => g.innerHTML += `<div onclick="inspectZoneCard('${z}',${i})" class="bg-stone-900 border border-stone-700 cursor-pointer p-1"><img src="${c.image}" class="w-full" onerror="this.src='GoldBurnLogo (1).png'"></div>`);
-    document.getElementById('zone-modal').classList.remove('hidden');
+let activePeerZone = null;
+function openPeerModal(uid, zone) {
+    activePeerZone = { uid, zone };
+    const m = document.getElementById('peer-modal');
+    const g = document.getElementById('peer-grid');
+    document.getElementById('peer-modal-title').textContent = `${zone === 'gy' ? 'GRAVEYARD' : zone.toUpperCase()}`;
+    g.innerHTML = '';
+    
+    let arr = [];
+    if (uid === getPlayerId()) {
+        if (zone === 'deck') arr = [...gameState.deck];
+        else arr = [...(gameState.players[uid][zone] || [])];
+    } else {
+        if (zone === 'deck') arr = [...(gameState.players[uid].deckCache || [])];
+        else arr = [...(gameState.players[uid][zone] || [])];
+    }
+    
+    arr.sort((a,b) => a.name.localeCompare(b.name));
+    
+    arr.forEach(c => {
+        g.innerHTML += `<div class="bg-stone-900 border-2 border-stone-700 rounded p-1 cursor-pointer hover:border-amber-500 transition" onclick="handlePeerCardClick('${c.instanceId}')">
+            <img src="${c.image}" class="w-full h-auto object-contain" onerror="this.src='GoldBurnLogo (1).png'">
+        </div>`;
+    });
+    m.classList.remove('hidden');
+    if(zone === 'deck' && uid !== getPlayerId()) logAction("Peered at opponent's deck.");
+    else if(zone === 'deck') logAction("Peered into deck.");
 }
-function inspectZoneCard(z,i) { document.getElementById('zone-modal').classList.add('hidden'); activeInsSlot = { dbRegion: z, index: i }; inspectCard(gameState.players[getPlayerId()][z][i], z, i); }
-function peerIntoDeck() {
-    const g = document.getElementById('peer-grid'); g.innerHTML = '';
-    [...gameState.deck].sort((a,b)=>a.name.localeCompare(b.name)).forEach(c => g.innerHTML += `<div class="bg-stone-900 border border-stone-700 p-1"><img src="${c.image}" class="w-full" onerror="this.src='GoldBurnLogo (1).png'"></div>`);
-    document.getElementById('peer-modal').classList.remove('hidden'); logAction("Peered deck.");
+
+function handlePeerCardClick(instanceId) {
+    if (activePeerZone.uid !== getPlayerId()) return; // Can only take from OWN zones
+    
+    let arr = activePeerZone.zone === 'deck' ? gameState.deck : gameState.players[getPlayerId()][activePeerZone.zone];
+    const idx = arr.findIndex(c => c.instanceId === instanceId);
+    if (idx > -1) {
+        const card = arr.splice(idx, 1)[0];
+        gameState.hand.push(card);
+        const zName = activePeerZone.zone === 'gy' ? 'Grave Yard' : activePeerZone.zone;
+        logAction(`Took ${card.name} from ${zName} to hand.`);
+        openPeerModal(activePeerZone.uid, activePeerZone.zone);
+        renderVTT(); broadcastState();
+    }
+}
+
+function closePeerModal(e) {
+    if(e && e.target.id !== 'peer-modal' && e.target.id !== 'close-peer-btn') return;
+    document.getElementById('peer-modal').classList.add('hidden');
+    if (activePeerZone && activePeerZone.uid === getPlayerId() && activePeerZone.zone === 'deck') {
+        gameState.deck.sort(() => Math.random() - 0.5);
+        logAction("Deck shuffled.");
+        broadcastState();
+    }
+    activePeerZone = null;
 }
 
 function leaveMatch() {
@@ -1193,7 +1306,7 @@ function equipStarterDeck() {
     const val = document.getElementById('equip-starter-select').value;
     if (val && STARTER_DECKS[val]) {
         const isOwned = !playerState.uid ? (val === "Bandits Arrival Starter") : playerState.unlockedCards.includes(val);
-        if(!isOwned) return alert("You must buy this deck in the Store first!");
+        if(!isOwned) return alert("You must buy this deck in the Shop first!");
 
         playerState.currentDeck = {};
         for (const [id, count] of Object.entries(STARTER_DECKS[val])) {
