@@ -648,6 +648,11 @@ function renderVTT() {
             div.innerHTML = `<img src="${card.image}" class="card-img-full bg-stone-900 p-1" onerror="this.src='GoldBurnLogo (1).png'">`;
             div.onclick = (e) => {
                 e.stopPropagation();
+                
+                let canPlay = isMyTurn;
+                if (card.type === 'Act' && card.subtypes && card.subtypes.includes('Fast')) canPlay = true;
+                if (!canPlay) return;
+
                 selectedHandIndex = selectedHandIndex === idx ? null : idx;
                 activeInsSlot = null; gameState.moveMode = false; gameState.targetMode = false;
                 if(selectedHandIndex !== null) inspectCard(card, 'hand', idx); else inspectEmpty();
@@ -723,9 +728,9 @@ function renderVTT() {
                             </div>
                         </div>
                         <div class="flex flex-col gap-2 justify-center">
-                            <div class="w-12 h-16 bg-[#050505] border border-purple-900/50 rounded flex items-center justify-center text-[8px] text-purple-700 cursor-pointer hover:border-purple-500" onclick="openPeerModal('${uid}', 'void')">V [${p.void?p.void.length:0}]</div>
-                            <div class="w-12 h-16 bg-stone-950 border border-stone-800 rounded flex items-center justify-center text-[8px] text-stone-500 cursor-pointer hover:border-stone-500" onclick="openPeerModal('${uid}', 'gy')">GY [${p.gy?p.gy.length:0}]</div>
-                            <div class="w-12 h-16 bg-stone-950 border border-amber-800/50 rounded flex items-center justify-center text-[8px] text-amber-500 cursor-pointer hover:border-amber-500" onclick="openPeerModal('${uid}', 'deck')">DECK [${p.deckCount}]</div>
+                            <div class="w-12 h-16 bg-[#050505] border border-purple-900/50 rounded flex flex-col items-center justify-center text-[8px] text-purple-700 cursor-pointer hover:border-purple-500 text-center leading-none" onclick="openPeerModal('${uid}', 'void')"><span class="font-bold">V</span><br>[${p.void?p.void.length:0}]</div>
+                            <div class="w-12 h-16 bg-stone-950 border border-stone-800 rounded flex flex-col items-center justify-center text-[8px] text-stone-500 cursor-pointer hover:border-stone-500 text-center leading-none" onclick="openPeerModal('${uid}', 'gy')"><span class="font-bold">GY</span><br>[${p.gy?p.gy.length:0}]</div>
+                            <div class="w-12 h-16 bg-stone-950 border border-amber-800/50 rounded flex flex-col items-center justify-center text-[8px] text-amber-500 cursor-pointer hover:border-amber-500 text-center leading-none" onclick="openPeerModal('${uid}', 'deck')"><span class="font-bold">DECK</span><br>[${p.deckCount}]</div>
                         </div>
                     </div>
                 </div>`;
@@ -740,9 +745,20 @@ function renderVTT() {
             const oppCard = gameState.players[oppUid].center[2];
             centerHtml += renderSlotHtml(oppCard, oppUid, 'center', 2, true, true, `oppAct-${oppUid}`, 'OPP ACT');
         });
+        
         if (!(gameState.rules && gameState.rules.noZone)) {
-            centerHtml += renderSlotHtml(myP.center[1], myUid, 'center', 1, false, true, 'center', 'SHARED ZONE');
+            let sharedZoneCard = null;
+            let sharedZoneUid = myUid;
+            for (const uid of Object.keys(gameState.players)) {
+                if (gameState.players[uid].center && gameState.players[uid].center[1]) {
+                    sharedZoneCard = gameState.players[uid].center[1];
+                    sharedZoneUid = uid;
+                    break;
+                }
+            }
+            centerHtml += renderSlotHtml(sharedZoneCard, sharedZoneUid, 'center', 1, sharedZoneUid !== myUid, true, 'center', 'SHARED ZONE');
         }
+        
         centerHtml += renderSlotHtml(myP.center[2], myUid, 'center', 2, false, true, 'center', 'YOUR ACT');
         centerContainer.innerHTML = centerHtml;
     }
@@ -905,7 +921,6 @@ function editMatchGold(dir) {
 
 function processPlayerElimination() {
     const myUid = getPlayerId();
-    alert("You have conceded or reached 0 HP. You are now spectating.");
     gameState.players[myUid].spectator = true;
     gameState.players[myUid].front = [null,null,null]; gameState.players[myUid].back = [null,null,null]; gameState.players[myUid].center = [null,null,null];
     gameState.players[myUid].gy = []; gameState.players[myUid].void = []; gameState.players[myUid].gold = 0; gameState.players[myUid].handCache = [];
@@ -930,6 +945,7 @@ function editCardHP(dir) {
     logAction(`HP to ${card.currentHp}`);
     
     if(card.type === 'Vital' && card.currentHp <= 0) {
+        alert("Your vital reached 0 HP. You are now spectating.");
         processPlayerElimination();
     } else {
         renderVTT(); broadcastState();
@@ -1038,8 +1054,6 @@ function logAction(msg) {
 
 // Turn Management
 function endTurn() {
-    if(gameState.activeTurnUid !== getPlayerId() && currentRoomId !== "SANDBOX") return;
-    
     const myP = gameState.players[getPlayerId()];
     ['front','back','center'].forEach(r => myP[r].forEach(c => { if(c) c.exhausted = false; }));
     
@@ -1125,6 +1139,10 @@ function movePeerSelectedCard(targetZone) {
         } else if(targetZone === 'void') {
             gameState.players[getPlayerId()].void.push(card);
             logAction(`Moved ${card.name} from Grave Yard to Void.`);
+        } else if(targetZone === 'deck') {
+            gameState.deck.push(card);
+            gameState.deck.sort(() => Math.random() - 0.5);
+            logAction(`Moved ${card.name} from Grave Yard to Deck and shuffled.`);
         }
         selectedPeerCardId = null;
         openPeerModal(activePeerZone.uid, activePeerZone.zone);
@@ -1145,11 +1163,8 @@ function closePeerModal(e) {
 }
 
 function leaveMatch() {
-    if(gameState.players[getPlayerId()] && gameState.players[getPlayerId()].spectator) {
-        alert("You Lost!");
-        window.location.reload();
-        return;
-    }
+    if(gameState.players[getPlayerId()] && gameState.players[getPlayerId()].spectator) return;
+    
     if(gameState.phase === 'PLAYING' && currentRoomId && currentRoomId !== "SANDBOX") {
         if(confirm("Concede match?")) {
             gameState.players[getPlayerId()].spectator = true;
