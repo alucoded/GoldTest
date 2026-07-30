@@ -63,15 +63,17 @@
     <div id="lobby-view" class="flex flex-1 overflow-hidden">
         <div class="flex-1 flex flex-col overflow-hidden bg-stone-950">
             <div id="nav-buttons" class="flex bg-stone-900 border-b border-stone-800 px-6 py-2 space-x-2 flex-shrink-0">
-                <button onclick="switchTab('play')" id="btn-play" class="nav-btn px-4 py-2 rounded text-xs font-bold transition bg-amber-500 text-stone-950">Play</button>
-                <button onclick="switchTab('forge')" id="btn-forge" class="nav-btn px-4 py-2 rounded text-xs font-bold transition bg-stone-800 text-stone-300">Forge / Deck</button>
-                <button onclick="switchTab('store')" id="btn-store" class="nav-btn px-4 py-2 rounded text-xs font-bold transition bg-stone-800 text-stone-300">Store & Inventory</button>
-                <button onclick="switchTab('admin')" id="btn-admin" class="nav-btn px-4 py-2 rounded text-xs font-bold transition bg-red-900 text-stone-100 hidden">ADMIN ONLY</button>
+                <button onclick="switchTab('play')" id="btn-play" class="nav-btn bg-amber-500 text-stone-950 px-4 py-2 rounded text-xs font-bold transition">Play</button>
+                <button onclick="switchTab('deck')" id="btn-deck" class="nav-btn bg-stone-800 text-stone-300 px-4 py-2 rounded text-xs font-bold transition">Deck Manager</button>
+                <button onclick="switchTab('shop')" id="btn-shop" class="nav-btn bg-stone-800 text-stone-300 px-4 py-2 rounded text-xs font-bold transition">Shop</button>
+                <button onclick="switchTab('admin')" id="btn-admin" class="nav-btn bg-red-900 text-stone-100 px-4 py-2 rounded text-xs font-bold transition hidden">ADMIN ONLY</button>
             </div>
 
-            <div id="tab-play" class="tab-content block flex-1 p-6 overflow-y-auto max-w-4xl mx-auto w-full space-y-4">
+            <!-- PLAY TAB -->
+            <div id="tab-play" class="tab-content block flex-1 p-6 overflow-y-auto max-w-5xl mx-auto w-full space-y-4">
                 <h2 class="text-2xl font-bold text-amber-400 font-serif mb-2">Select Game Mode</h2>
-                <div class="bg-stone-900 border border-amber-600/50 p-4 rounded-lg shadow-lg space-y-3">
+                
+                <div class="bg-stone-900 border border-amber-600/50 p-4 rounded-lg shadow-lg space-y-3 mb-4">
                     <h3 class="font-bold text-amber-400 text-lg">Custom Match (1-4 Players)</h3>
                     <p class="text-xs text-stone-400">Host or join a custom lobby using a 4-digit code.</p>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
@@ -87,29 +89,36 @@
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div class="bg-stone-900 border border-stone-800 p-4 rounded-lg flex flex-col justify-between">
                         <div><h3 class="font-bold text-stone-200 text-lg mb-1">Quickplay</h3><p class="text-xs text-stone-400 mb-4">Random 1v1 matchmaking.</p></div>
-                        <div class="flex gap-2">
-                            <button id="btn-quickplay" onclick="queueMatch('quickplay')" class="w-full bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded text-xs transition shadow">Play Quickplay</button>
-                        </div>
+                        <button id="btn-quickplay" onclick="queueMatch('quickplay')" class="w-full bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded text-xs transition shadow">Play Quickplay</button>
                     </div>
                     
                     <div class="bg-stone-900 border border-stone-800 p-4 rounded-lg flex flex-col justify-between opacity-50 pointer-events-none">
-                        <div><h3 class="font-bold text-stone-200 text-lg mb-1">Ranked Ladder</h3><p class="text-xs text-stone-400 mb-4">Restricted by tier (In Dev).</p></div>
+                        <div><h3 class="font-bold text-stone-200 text-lg mb-1">Ranked Ladder</h3><p class="text-xs text-stone-400 mb-4">Restricted by tier.</p></div>
                         <button class="w-full bg-stone-800 text-stone-500 font-bold py-2 rounded text-xs">Locked</button>
                     </div>
 
                     <div class="bg-stone-900 border border-stone-800 p-4 rounded-lg flex flex-col justify-between">
                         <div><h3 class="font-bold text-stone-200 text-lg mb-1">Starter Decks</h3><p class="text-xs text-stone-400 mb-4">1v1 Starter decks only.</p></div>
-                        <div class="flex gap-2">
-                            <button id="btn-starters" onclick="queueMatch('starters')" class="w-full bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded text-xs transition shadow">Play Starter Decks</button>
-                        </div>
+                        <button id="btn-starters" onclick="queueMatch('starters')" class="w-full bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-2 rounded text-xs transition shadow">Play Starter Decks</button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                    <div class="bg-stone-900 border border-stone-800 p-4 rounded-lg flex flex-col justify-between opacity-50 pointer-events-none">
+                        <div><h3 class="font-bold text-stone-200 text-lg mb-1">30 Card Draft</h3><p class="text-xs text-stone-400 mb-4">Decks are created from a list of 30 random cards each.</p></div>
+                        <button class="w-full bg-stone-800 text-stone-500 font-bold py-2 rounded text-xs">In Development</button>
+                    </div>
+                    <div class="bg-stone-900 border border-stone-800 p-4 rounded-lg flex flex-col justify-between opacity-50 pointer-events-none">
+                        <div><h3 class="font-bold text-stone-200 text-lg mb-1">Pick Draft</h3><p class="text-xs text-stone-400 mb-4">Decks are created from picking cards from a draft list.</p></div>
+                        <button class="w-full bg-stone-800 text-stone-500 font-bold py-2 rounded text-xs">In Development</button>
                     </div>
                 </div>
             </div>
 
-            <!-- FORGE TAB -->
-            <div id="tab-forge" class="tab-content hidden flex-1 p-4 overflow-hidden flex flex-col max-w-7xl mx-auto w-full">
+            <!-- DECK MANAGER TAB -->
+            <div id="tab-deck" class="tab-content hidden flex-1 p-4 overflow-hidden flex flex-col max-w-7xl mx-auto w-full">
                 <div class="flex justify-between items-center mb-3 flex-shrink-0">
-                    <h2 class="text-xl font-bold text-amber-400 font-serif">Forge & Deck Manager</h2>
+                    <h2 class="text-xl font-bold text-amber-400 font-serif">Deck Manager</h2>
                     <button onclick="testDeckInSandbox()" class="bg-emerald-600 hover:bg-emerald-500 text-stone-950 font-bold px-4 py-2 rounded text-xs shadow border border-emerald-400 transition">Test Deck in Sandbox Mode</button>
                 </div>
                 <div class="builder-container grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
@@ -119,7 +128,7 @@
                                 <input type="text" id="card-search-name" placeholder="Search name..." class="col-span-1 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded" oninput="filterCollection()">
                                 <input type="text" id="card-search-desc" placeholder="Search description..." class="col-span-1 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded" oninput="filterCollection()">
                                 <select id="filter-cost" class="col-span-1 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded" onchange="filterCollection()">
-                                    <option value="all">All Costs</option><option value="<3">Cost: &lt; 3</option><option value="3">Cost: 3</option><option value=">3">Cost: &gt; 3</option><option value="special">Other (Zone/Act)</option>
+                                    <option value="all">All Costs</option><option value="<3">Cost: &lt; 3</option><option value="3">Cost: 3</option><option value=">3">Cost: &gt; 3</option><option value="special">Other</option>
                                 </select>
                                 <select id="filter-set" class="col-span-1 p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded" onchange="filterCollection()">
                                     <option value="all">All Sets</option>
@@ -182,9 +191,9 @@
                 </div>
             </div>
 
-            <!-- STORE TAB -->
-            <div id="tab-store" class="tab-content hidden flex-1 p-6 overflow-y-auto w-full space-y-6 max-w-4xl mx-auto">
-                <h2 class="text-2xl font-bold text-amber-400 font-serif mb-4">Account Store</h2>
+            <!-- SHOP TAB -->
+            <div id="tab-shop" class="tab-content hidden flex-1 p-6 overflow-y-auto w-full space-y-6 max-w-4xl mx-auto">
+                <h2 class="text-2xl font-bold text-amber-400 font-serif mb-4">Shop</h2>
                 <div id="store-items-container" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
                 <div class="border-t border-stone-800 pt-6">
                     <h2 class="text-xl font-bold text-amber-400 font-serif mb-3">Your Inventory</h2>
@@ -258,11 +267,9 @@
         <button onclick="leaveMatch()" class="bg-red-950 text-red-200 py-2 px-6 rounded text-xs border mt-4">Cancel / Leave</button>
     </div>
 
-    <!-- GAME VIEW -->
     <div id="game-view" class="hidden flex-1 bg-gradient-to-b from-[#1c1917] to-[#0c0a09] flex overflow-hidden relative">
         <svg id="targeting-line-container" class="ping-line hidden"><line id="targeting-line" x1="0" y1="0" x2="0" y2="0" /></svg>
         
-        <!-- TURN ORDER PANEL (Left) -->
         <div class="w-48 bg-stone-950 border-r border-stone-800 flex flex-col flex-shrink-0 shadow-xl z-20 overflow-y-auto p-2" id="turn-order-panel">
             <div class="text-amber-400 font-bold text-xs uppercase mb-3 border-b border-stone-800 pb-1">Turn Order</div>
             <div id="turn-order-list" class="flex flex-col gap-2"></div>
@@ -295,7 +302,6 @@
             </div>
         </div>
 
-        <!-- MAIN BOARD -->
         <div class="flex-1 flex flex-col relative overflow-hidden" id="main-board-area">
             <div id="opponents-container" class="w-full flex-1 overflow-x-auto p-4 flex gap-8 items-center justify-center opacity-80 min-h-[250px]"></div>
 
@@ -337,7 +343,6 @@
                 </div>
             </div>
 
-            <!-- SPECTATOR TOGGLES (Hidden unless spectator) -->
             <div id="spectator-ui" class="hidden absolute bottom-2 left-1/2 transform -translate-x-1/2 bg-stone-900/90 border border-amber-500 p-3 rounded-lg shadow-2xl z-40 flex items-center gap-4">
                 <span class="text-amber-400 font-bold text-xs uppercase">Spectator Vision:</span>
                 <div id="spectator-checkboxes" class="flex gap-3 text-sm text-stone-300"></div>
