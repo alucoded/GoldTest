@@ -38,7 +38,22 @@ let matchTimerInterval = null; let matchSeconds = 0; let hostPingInterval = null
 
 const STORE_ITEMS = [
     { key: "Bandits Arrival Starter", name: "Bandits Arrival Starter", cost: 0, desc: "Foundational Bandits Arrival starter deck." },
-    { key: "Devout Patronage Starter", name: "Devout Patronage Starter", cost: 20, desc: "Complete Devout Patronage starter deck." }
+    { key: "Devout Patronage Starter", name: "Devout Patronage Starter", cost: 10, desc: "Complete Devout Patronage starter deck." },
+    { key: "Aurum Guild Starter", name: "Aurum Guild Starter", cost: 10, desc: "Complete Aurum Guild Starter deck." },
+    { key: "Dread Apocalypse Starter", name: "Dread Apocalypse Starter", cost: 10, desc: "Complete Dread Apocalypse Starter deck." },
+    
+    { key: "Season 0 Card List", name: "E. Season 0 Card List", cost: 15, desc: "Complete Season 0 Card List." },
+    { key: "Season 1 Card List", name: "F. Season 1 Card List", cost: 15, desc: "Complete Season 1 Card List." },
+    { key: "Season 2 Card List", name: "G. Season 2 Card List", cost: 15, desc: "Complete Season 2 Card List." },
+    
+    { key: "Dead Of Winter", name: "H. Dead Of Winter", cost: 20, desc: "Complete Dead Of Winter." },
+    { key: "Power Escalation", name: "I .Power Escalation", cost: 20, desc: "Complete Power Escalation." },
+    { key: "The Vox Populi", name: "J. The Vox Populi", cost: 20, desc: "Complete The Vox Populi." },
+    { key: "Blood Money", name: "K. Blood Money", cost: 20, desc: "Complete Blood Money." },
+    { key: "Crimson Onslaught", name: "L. Crimson Onslaught", cost: 20, desc: "Complete Crimson Onslaught." },
+    { key: "Dice World", name: "M. Dice World", cost: 20, desc: "Complete Dice World." },
+    
+    { key: "All Stars", name: "N. All Stars", cost: 20, desc: "Complete All Stars set." }
 ];
 
 // --- AUTH & SETUP ---
@@ -1205,6 +1220,8 @@ function isCardOwned(card) {
     if(playerState.unlockedCards.includes(card.id)) return true;
     if(card.set && card.set.includes('Bandits') && playerState.unlockedCards.includes('Bandits Arrival Starter')) return true;
     if(card.set && card.set.includes('Devout') && playerState.unlockedCards.includes('Devout Patronage Starter')) return true;
+    if(card.set && card.set.includes('Dread') && playerState.unlockedCards.includes('Dread Guild Starter')) return true;
+    if(card.set && card.set.includes('Aurum') && playerState.unlockedCards.includes('Aurum Patronage Starter')) return true;
     return false;
 }
 
