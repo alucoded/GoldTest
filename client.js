@@ -11,8 +11,10 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
+const RANKS = ["Copper", "Iron", "Silver", "Emerald", "GOLDEN", "BURNING", "GOOBIS"];
+
 let playerState = { 
-    uid: null, email: null, displayName: "Guest Player", photoURL: "GoldBurnLogo (1).png", accountGold: 0, isAdmin: false,
+    uid: null, email: null, displayName: "Guest Player", photoURL: "GoldBurnLogo (1).png", accountGold: 0, isAdmin: false, rank: "Copper",
     unlockedCards: ['Bandits Arrival Starter'], customDecks: {}, activeDeckName: "Custom Deck", currentDeck: {}, currentVital: null,
     tempSessionId: "guest_" + Math.random().toString(36).substr(2, 9)
 };
@@ -24,7 +26,7 @@ let roomUnsubscribe = null;
 let lastChatCount = 0; let lastLogCount = 0;
 
 let gameState = {
-    isHost: false, roomCode: null, phase: 'LOBBY', mode: 'quickplay',
+    isHost: false, roomCode: null, phase: 'LOBBY', mode: 'quickplay', activeQueueMode: null,
     players: {}, turnOrder: [], activeTurnUid: null, spectatorVision: {},
     hand: [], deck: [], lastTarget: null, 
     lastKnownPing: null, localLastPingTime: null,
@@ -55,14 +57,15 @@ auth.onAuthStateChanged(async (user) => {
             const userRef = db.collection('players').doc(user.uid);
             const doc = await userRef.get();
             if(!doc.exists) {
-                const newProfile = { email: user.email, displayName: user.displayName, photoURL: playerState.photoURL, accountGold: 0, unlockedCards: ['Bandits Arrival Starter'], isAdmin: false };
+                const newProfile = { email: user.email, displayName: user.displayName, photoURL: playerState.photoURL, accountGold: 0, unlockedCards: ['Bandits Arrival Starter'], isAdmin: false, rank: "Copper" };
                 await userRef.set(newProfile, { merge: true });
-                playerState.accountGold = 0; playerState.unlockedCards = ['Bandits Arrival Starter']; playerState.isAdmin = false;
+                playerState.accountGold = 0; playerState.unlockedCards = ['Bandits Arrival Starter']; playerState.isAdmin = false; playerState.rank = "Copper";
             } else {
                 const data = doc.data();
                 playerState.accountGold = data.accountGold !== undefined ? data.accountGold : 0;
                 playerState.unlockedCards = data.unlockedCards || ['Bandits Arrival Starter'];
                 playerState.isAdmin = data.isAdmin || false;
+                playerState.rank = data.rank || "Copper";
             }
             if(playerState.isAdmin) document.getElementById('btn-admin').classList.remove('hidden');
             updateUI(); filterCollection(); renderStoreAndInventory();
@@ -83,7 +86,19 @@ function switchTab(tabId) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
     const target = document.getElementById(`tab-${tabId}`);
     if(target) target.classList.remove('hidden');
-    if (tabId === 'forge') filterCollection();
+    
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.remove('bg-amber-500', 'text-stone-950');
+        btn.classList.add('bg-stone-800', 'text-stone-300');
+    });
+    
+    const activeBtn = document.getElementById(`btn-${tabId}`);
+    if(activeBtn) {
+        activeBtn.classList.remove('bg-stone-800', 'text-stone-300');
+        activeBtn.classList.add('bg-amber-500', 'text-stone-950');
+    }
+
+    if (tabId === 'deck') filterCollection();
     if (tabId === 'admin') loadAdminBrowser();
 }
 
@@ -112,53 +127,82 @@ function filterAdminList() {
         (p.unlockedCards||[]).forEach(c => cardsHtml += `<option value="${c}">${c}</option>`);
         cardsHtml += `</select><button onclick="adminRemoveItem('${p.id}')" class="bg-red-800 hover:bg-red-700 px-2 rounded text-xs ml-1 transition">Del</button>`;
         
+        let rankOptions = '';
+        RANKS.forEach(r => rankOptions += `<option value="${r}" ${p.rank === r ? 'selected' : ''}>${r}</option>`);
+
         list.innerHTML += `<div class="bg-stone-900 border border-stone-700 p-3 rounded flex flex-col gap-2 shadow">
             <div class="flex justify-between items-center text-xs">
                 <span class="font-bold text-amber-400">${p.displayName}</span> <span class="text-stone-500">${p.email}</span>
             </div>
             <div class="flex gap-2 text-xs items-center">
-                <input type="text" id="name-${p.id}" value="${p.displayName}" class="bg-stone-950 border border-stone-800 p-1 rounded">
-                <button onclick="adminEditName('${p.id}')" class="bg-stone-800 hover:bg-stone-700 px-2 py-1 rounded transition">Save Name</button>
-                <div class="ml-auto flex items-center">${cardsHtml}</div>
+                <span class="text-stone-400 font-bold">Gold:</span>
+                <input type="number" id="gold-${p.id}" value="${p.accountGold || 0}" class="w-16 bg-stone-950 border border-stone-800 p-1 rounded font-bold text-white">
+                <span class="text-stone-400 font-bold ml-2">Rank:</span>
+                <select id="rank-${p.id}" class="bg-stone-950 border border-stone-800 p-1 rounded font-bold text-amber-400">${rankOptions}</select>
+                <button onclick="adminSavePlayer('${p.id}')" class="bg-stone-800 hover:bg-stone-700 px-3 py-1 rounded transition font-bold text-white shadow ml-auto">Save</button>
+            </div>
+            <div class="flex justify-end text-xs items-center mt-1 pt-2 border-t border-stone-800">
+                ${cardsHtml}
             </div>
         </div>`;
     });
 }
-async function adminEditName(uid) {
-    const name = document.getElementById(`name-${uid}`).value;
-    await db.collection('players').doc(uid).update({ displayName: name }); alert("Saved"); loadAdminBrowser();
+async function adminSavePlayer(uid) {
+    const newGold = parseInt(document.getElementById(`gold-${uid}`).value) || 0;
+    const newRank = document.getElementById(`rank-${uid}`).value;
+    await db.collection('players').doc(uid).update({ accountGold: newGold, rank: newRank });
+    alert("Player Profile Saved"); loadAdminBrowser();
 }
 async function adminRemoveItem(uid) {
     const val = document.getElementById(`rem-${uid}`).value;
     if(!val) return;
     await db.collection('players').doc(uid).update({ unlockedCards: firebase.firestore.FieldValue.arrayRemove(val) });
-    alert("Removed"); loadAdminBrowser();
+    alert("Item Removed"); loadAdminBrowser();
 }
 
 // --- MATCHMAKING & PRE-LOBBY ---
+let activeQueueUnsub = null;
 async function queueMatch(mode) {
     if(!playerState.uid) return alert("Guests can only play Custom matches!");
-    if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Forge first!");
+    if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Deck Manager first!");
     
-    const btnId = mode === 'quickplay' ? 'btn-quickplay' : 'btn-starters';
-    const btn = document.getElementById(btnId);
+    const btn = document.getElementById(`btn-${mode}`);
     const origText = btn.textContent;
-    btn.textContent = "Searching..."; btn.disabled = true;
+
+    if (gameState.activeQueueMode === mode) {
+        if(activeQueueUnsub) activeQueueUnsub();
+        gameState.activeQueueMode = null;
+        btn.textContent = `Play ${mode.charAt(0).toUpperCase() + mode.slice(1)}`;
+        btn.classList.replace('bg-red-700', 'bg-amber-600');
+        return;
+    }
+
+    if (gameState.activeQueueMode) {
+        if(activeQueueUnsub) activeQueueUnsub();
+        const oldBtn = document.getElementById(`btn-${gameState.activeQueueMode}`);
+        if(oldBtn) { oldBtn.textContent = `Play ${gameState.activeQueueMode.charAt(0).toUpperCase() + gameState.activeQueueMode.slice(1)}`; oldBtn.classList.replace('bg-red-700', 'bg-amber-600'); }
+    }
+
+    gameState.activeQueueMode = mode;
+    btn.textContent = "Cancel Search";
+    btn.classList.replace('bg-amber-600', 'bg-red-700');
 
     let joined = false;
     const query = db.collection('rooms').where('mode', '==', mode).where('status', '==', 'WAITING');
     
-    const unsub = query.onSnapshot(snap => {
+    activeQueueUnsub = query.onSnapshot(snap => {
         if(!joined && !snap.empty) {
-            joined = true; unsub(); joinMatch(mode, null, snap.docs[0].id);
-            btn.textContent = origText; btn.disabled = false;
+            joined = true; activeQueueUnsub(); gameState.activeQueueMode = null;
+            btn.textContent = origText; btn.classList.replace('bg-red-700', 'bg-amber-600');
+            joinMatch(mode, null, snap.docs[0].id);
         }
     });
 
     setTimeout(() => {
-        if(!joined) {
-            joined = true; unsub(); hostMatch(mode);
-            btn.textContent = origText; btn.disabled = false;
+        if(!joined && gameState.activeQueueMode === mode) {
+            joined = true; activeQueueUnsub(); gameState.activeQueueMode = null;
+            btn.textContent = origText; btn.classList.replace('bg-red-700', 'bg-amber-600');
+            hostMatch(mode);
         }
     }, 5000);
 }
@@ -170,7 +214,7 @@ async function handleCustomMatch() {
 
 async function hostMatch(mode) {
     if(!playerState.uid && mode !== 'custom') return alert("Guests can only play Custom matches!");
-    if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Forge first!");
+    if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Deck Manager first!");
     
     const roomCode = mode === 'custom' ? Math.floor(1000 + Math.random()*9000).toString() : null;
     const initialPlayer = { 
@@ -202,7 +246,7 @@ async function hostMatch(mode) {
 
 async function joinMatch(mode, code = null, directRoomId = null) {
     if(!playerState.uid && mode !== 'custom') return alert("Guests can only play Custom matches!");
-    if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Forge first!");
+    if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Deck Manager first!");
     
     let roomDoc = null;
     if(directRoomId) {
@@ -337,7 +381,9 @@ function lockInVital() {
     if (vIdx !== -1) {
         const v = gameState.deck.splice(vIdx, 1)[0];
         if(gameState.rules && gameState.rules.health) { v.currentHp = Math.max(1, Math.floor(v.hp/2)); }
-        gameState.players[getPlayerId()][pendingVitalSlot.region][pendingVitalSlot.idx] = v;
+        
+        const dbReg = pendingVitalSlot.region === 'playerFront' ? 'front' : 'back';
+        gameState.players[getPlayerId()][dbReg][pendingVitalSlot.idx] = v;
     }
     
     if (currentRoomId === "SANDBOX") { enterMatch(); } 
@@ -537,6 +583,7 @@ function renderVTT() {
 
     document.getElementById('deck-count-hud').textContent = gameState.deck.length;
     document.getElementById('match-gold-val').textContent = myP.gold || 0;
+    document.getElementById('profile-rank').textContent = playerState.rank;
     
     const toPanel = document.getElementById('turn-order-list');
     toPanel.innerHTML = '';
@@ -937,7 +984,7 @@ function executeLeaveMatch() {
     switchTab('play'); loadLocalDeck();
 }
 
-// --- FORGE & DECK MANAGER ---
+// --- DECK MANAGER ---
 function loadLocalDeck() {
     const d = localStorage.getItem('gb_currentDeck');
     if(d) playerState.currentDeck = JSON.parse(d);
@@ -1159,7 +1206,7 @@ function equipStarterDeck() {
     }
 }
 
-// --- STORE & INVENTORY ---
+// --- SHOP & INVENTORY ---
 function buyStoreItem(key, cost) {
     if (playerState.accountGold >= cost) {
         playerState.accountGold -= cost;
@@ -1201,6 +1248,8 @@ function renderStoreAndInventory() {
 function updateUI() { 
     const el = document.getElementById('account-gold-display');
     if(el) el.textContent = playerState.accountGold; 
+    const rankEl = document.getElementById('profile-rank');
+    if(rankEl) rankEl.textContent = playerState.rank;
 }
 function testDeckInSandbox(){ currentRoomId="SANDBOX"; showVitalLobby('sandbox'); }
 window.onload = () => { loadLocalDeck(); updateUI(); filterCollection(); renderDeckList(); renderStoreAndInventory(); };
