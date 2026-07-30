@@ -297,7 +297,6 @@ async function joinMatch(mode, code = null, directRoomId = null) {
     if(mode !== 'sandbox') {
         hostPingInterval = setInterval(() => {
             if (!gameState.isHost && currentRoomId && gameState.localLastPingTime) {
-                // Increased to 120s to allow for browser tab-sleep grace periods
                 if (Date.now() - gameState.localLastPingTime > 120000) {
                     alert("Host disconnected. Lobby tie."); executeLeaveMatch();
                 }
@@ -591,29 +590,58 @@ function renderVTT() {
     const myP = gameState.players[myUid];
     if(!myP) return;
 
-    if(myP.spectator) {
-        document.getElementById('player-hand-container').classList.add('hidden');
-        document.getElementById('btn-end-turn').classList.add('hidden');
-        const pf = document.getElementById('player-front-row');
-        if(pf) pf.parentElement.classList.add('hidden');
-        document.getElementById('spectator-ui').classList.remove('hidden');
-        renderSpectatorCheckboxes();
+    const isMyTurn = gameState.activeTurnUid === myUid || currentRoomId === "SANDBOX";
+    const endTurnBtn = document.getElementById('btn-end-turn');
+    if(endTurnBtn) {
+        if(isMyTurn) { 
+            endTurnBtn.classList.replace('bg-stone-800', 'bg-amber-600'); 
+            endTurnBtn.classList.replace('text-stone-500', 'text-stone-950'); 
+            endTurnBtn.disabled = false; 
+        } else { 
+            endTurnBtn.classList.replace('bg-amber-600', 'bg-stone-800'); 
+            endTurnBtn.classList.replace('text-stone-950', 'text-stone-500'); 
+            endTurnBtn.disabled = true; 
+        }
     }
 
-    document.getElementById('deck-count-hud').textContent = gameState.deck.length;
-    document.getElementById('match-gold-val').textContent = myP.gold || 0;
-    
-    const toPanel = document.getElementById('turn-order-list');
-    toPanel.innerHTML = '';
-    gameState.turnOrder.forEach(uid => {
-        const p = gameState.players[uid];
-        if(!p || p.spectator) return;
-        const isAct = uid === gameState.activeTurnUid;
-        toPanel.innerHTML += `<div class="flex items-center gap-2 p-1 rounded transition ${isAct?'turn-active border border-amber-500':'border border-stone-800 opacity-70'}"><img src="${p.photo}" class="w-6 h-6 rounded-full"><span class="text-xs font-bold ${isAct?'text-amber-400':'text-stone-400'} truncate w-full">${p.name}</span></div>`;
-    });
-
     const handEl = document.getElementById('player-hand-container'); handEl.innerHTML = '';
-    if(!myP.spectator) {
+
+    if(myP.spectator) {
+        document.getElementById('player-active-board').classList.add('hidden');
+        document.getElementById('spectator-ui').classList.remove('hidden');
+        
+        const concedeBtn = document.getElementById('btn-concede');
+        if(concedeBtn) {
+            concedeBtn.textContent = "Leave Match";
+            concedeBtn.onclick = () => {
+                alert("You Lost!");
+                window.location.reload();
+            };
+        }
+
+        renderSpectatorCheckboxes();
+
+        Object.entries(gameState.players).forEach(([uid, p]) => {
+            if(gameState.spectatorVision[uid] && p.handCache && p.handCache.length > 0) {
+                p.handCache.forEach(card => {
+                    const div = document.createElement('div');
+                    div.className = `w-[110px] h-[155px] flex-shrink-0 rounded-md overflow-hidden border-2 border-amber-500/50 shadow-lg relative`;
+                    div.innerHTML = `<img src="${card.image}" class="card-img-full bg-stone-900 p-1" onerror="this.src='GoldBurnLogo (1).png'"><div class="absolute bottom-0 w-full bg-black/80 text-[9px] text-amber-400 font-bold text-center truncate px-1">${p.name}</div>`;
+                    handEl.appendChild(div);
+                });
+            }
+        });
+        return;
+    } else {
+        document.getElementById('player-active-board').classList.remove('hidden');
+        document.getElementById('spectator-ui').classList.add('hidden');
+        
+        const concedeBtn = document.getElementById('btn-concede');
+        if(concedeBtn) {
+            concedeBtn.textContent = "Concede";
+            concedeBtn.onclick = leaveMatch;
+        }
+
         gameState.hand.forEach((card, idx) => {
             const div = document.createElement('div');
             div.className = `w-[110px] h-[155px] flex-shrink-0 cursor-pointer rounded-md overflow-hidden border-2 transition ${selectedHandIndex === idx ? 'border-amber-400 scale-105 z-20' : 'border-stone-800'}`;
@@ -628,6 +656,18 @@ function renderVTT() {
             handEl.appendChild(div);
         });
     }
+
+    document.getElementById('deck-count-hud').textContent = gameState.deck.length;
+    document.getElementById('match-gold-val').textContent = myP.gold || 0;
+    
+    const toPanel = document.getElementById('turn-order-list');
+    toPanel.innerHTML = '';
+    gameState.turnOrder.forEach(uid => {
+        const p = gameState.players[uid];
+        if(!p || p.spectator) return;
+        const isAct = uid === gameState.activeTurnUid;
+        toPanel.innerHTML += `<div class="flex items-center gap-2 p-1 rounded transition ${isAct?'turn-active border border-amber-500':'border border-stone-800 opacity-70'}"><img src="${p.photo}" class="w-6 h-6 rounded-full"><span class="text-xs font-bold ${isAct?'text-amber-400':'text-stone-400'} truncate w-full">${p.name}</span></div>`;
+    });
 
     const opps = Object.keys(gameState.players).filter(u => u !== myUid && !gameState.players[u].spectator).sort();
     const multiContainer = document.getElementById('opponents-container');
@@ -646,8 +686,8 @@ function renderVTT() {
                     <span class="text-amber-400 font-bold text-xs">Gold</span><br>
                     <span class="text-stone-100 text-lg">${p.gold}</span>
                 </div>
-                <div class="board-slot bg-[#050505] border border-purple-900/50 rounded flex items-center justify-center text-[10px] text-purple-800 font-bold cursor-pointer hover:border-purple-500 transition shadow-inner p-1 relative overflow-hidden" onclick="openPeerModal('${oppUid}', 'void')"><span class="z-10 bg-[#050505]/80 px-1 py-1 rounded text-purple-400 w-full text-center">VOID [${p.void ? p.void.length : 0}]</span></div>
-                <div class="board-slot bg-stone-950 border border-stone-700 rounded flex items-center justify-center text-[10px] text-stone-500 font-bold cursor-pointer hover:border-stone-400 transition shadow-inner p-1 relative overflow-hidden" onclick="openPeerModal('${oppUid}', 'gy')"><span class="z-10 bg-stone-950/80 px-1 py-1 rounded text-stone-400 w-full text-center">GRAVE YARD [${p.gy ? p.gy.length : 0}]</span></div>
+                <div class="board-slot bg-[#050505] border border-purple-900/50 rounded flex flex-col items-center justify-center text-[10px] text-purple-800 font-bold cursor-pointer hover:border-purple-500 transition shadow-inner p-1 relative overflow-hidden text-center" onclick="openPeerModal('${oppUid}', 'void')"><span class="z-10 bg-[#050505]/80 px-1 py-1 rounded text-purple-400 w-full font-bold">VOID<br>[${p.void ? p.void.length : 0}]</span></div>
+                <div class="board-slot bg-stone-950 border border-stone-700 rounded flex flex-col items-center justify-center text-[10px] text-stone-500 font-bold cursor-pointer hover:border-stone-400 transition shadow-inner p-1 relative overflow-hidden text-center" onclick="openPeerModal('${oppUid}', 'gy')"><span class="z-10 bg-stone-950/80 px-1 py-1 rounded text-stone-400 w-full font-bold">GRAVE YARD<br>[${p.gy ? p.gy.length : 0}]</span></div>
             </div>
             
             <div class="flex flex-col gap-2">
@@ -669,17 +709,9 @@ function renderVTT() {
         multiContainer.innerHTML = '';
         opps.forEach(uid => {
             const p = gameState.players[uid];
-            let shouldRenderHandOverlay = '';
-            if(gameState.spectatorVision[uid] && p.handCache && p.handCache.length > 0) {
-                let hH = `<div class="absolute inset-0 bg-black/90 z-30 flex items-center justify-center p-2 gap-1 overflow-x-auto rounded-xl">`;
-                p.handCache.forEach(c => hH += `<img src="${c.image}" class="h-full object-contain border border-amber-500 rounded" onerror="this.src='GoldBurnLogo (1).png'">`);
-                hH += `</div>`;
-                shouldRenderHandOverlay = hH;
-            }
 
             const oppHtml = `
                 <div class="flex flex-col gap-2 relative bg-stone-900/50 p-2 rounded-xl border border-stone-800" id="board-${uid}">
-                    ${shouldRenderHandOverlay}
                     <div class="flex items-center gap-2 mb-1"><img src="${p.photo}" class="w-6 h-6 rounded-full"><span class="text-amber-400 text-xs font-bold">${p.name}</span> <span class="ml-auto text-xs text-stone-400">Cards: ${p.deckCount} | Gold: <span class="text-amber-500">${p.gold}</span></span></div>
                     <div class="flex gap-4">
                         <div class="flex flex-col gap-2">
@@ -729,7 +761,7 @@ function renderVTT() {
         const el = document.getElementById(`${z}-visual`); if(!el) return;
         const arr = myP[z] || [];
         const label = z === 'gy' ? 'GRAVE YARD' : 'VOID';
-        el.innerHTML = arr.length > 0 ? `<img src="${arr[arr.length-1].image}" class="absolute inset-0 w-full h-full object-cover opacity-60" onerror="this.src='GoldBurnLogo (1).png'"><span class="z-10 bg-black/80 px-2 rounded">${label} [${arr.length}]</span>` : `<span class="z-10 bg-black/80 px-2 rounded">${label} [0]</span>`;
+        el.innerHTML = arr.length > 0 ? `<img src="${arr[arr.length-1].image}" class="absolute inset-0 w-full h-full object-cover opacity-60" onerror="this.src='GoldBurnLogo (1).png'"><span class="z-10 bg-black/80 px-2 rounded font-bold text-center">${label}<br>[${arr.length}]</span>` : `<span class="z-10 bg-black/80 px-2 rounded font-bold text-center">${label}<br>[0]</span>`;
     });
 }
 
@@ -761,7 +793,7 @@ function renderSpectatorCheckboxes() {
     Object.entries(gameState.players).forEach(([uid, p]) => {
         if(!p.spectator && uid !== getPlayerId()) {
             const chk = gameState.spectatorVision[uid] ? 'checked' : '';
-            cont.innerHTML += `<label><input type="checkbox" onchange="toggleSpecVision('${uid}', this.checked)" ${chk}> ${p.name}</label>`;
+            cont.innerHTML += `<label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" onchange="toggleSpecVision('${uid}', this.checked)" ${chk} class="rounded bg-stone-900 border-stone-700"> <span>${p.name}</span></label>`;
         }
     });
 }
@@ -1006,6 +1038,8 @@ function logAction(msg) {
 
 // Turn Management
 function endTurn() {
+    if(gameState.activeTurnUid !== getPlayerId() && currentRoomId !== "SANDBOX") return;
+    
     const myP = gameState.players[getPlayerId()];
     ['front','back','center'].forEach(r => myP[r].forEach(c => { if(c) c.exhausted = false; }));
     
@@ -1020,11 +1054,15 @@ function endTurn() {
 }
 
 let activePeerZone = null;
+let selectedPeerCardId = null;
+
 function openPeerModal(uid, zone) {
     activePeerZone = { uid, zone };
+    selectedPeerCardId = null;
     const m = document.getElementById('peer-modal');
     const g = document.getElementById('peer-grid');
     document.getElementById('peer-modal-title').textContent = `${zone === 'gy' ? 'GRAVEYARD' : zone.toUpperCase()}`;
+    document.getElementById('peer-card-actions').classList.add('hidden');
     g.innerHTML = '';
     
     let arr = [];
@@ -1039,7 +1077,7 @@ function openPeerModal(uid, zone) {
     arr.sort((a,b) => a.name.localeCompare(b.name));
     
     arr.forEach(c => {
-        g.innerHTML += `<div class="bg-stone-900 border-2 border-stone-700 rounded p-1 cursor-pointer hover:border-amber-500 transition" onclick="handlePeerCardClick('${c.instanceId}')">
+        g.innerHTML += `<div class="peer-card-item bg-stone-900 border-2 border-stone-700 rounded p-1 cursor-pointer hover:border-amber-500 transition" id="peer-card-${c.instanceId}" onclick="handlePeerCardClick('${c.instanceId}')">
             <img src="${c.image}" class="w-full h-auto object-contain" onerror="this.src='GoldBurnLogo (1).png'">
         </div>`;
     });
@@ -1052,12 +1090,43 @@ function handlePeerCardClick(instanceId) {
     if (activePeerZone.uid !== getPlayerId()) return;
     
     let arr = activePeerZone.zone === 'deck' ? gameState.deck : gameState.players[getPlayerId()][activePeerZone.zone];
-    const idx = arr.findIndex(c => c.instanceId === instanceId);
-    if (idx > -1) {
+    const card = arr.find(c => c.instanceId === instanceId);
+    if (!card) return;
+
+    if (activePeerZone.zone === 'gy') {
+        selectedPeerCardId = instanceId;
+        document.querySelectorAll('.peer-card-item').forEach(el => el.classList.remove('border-amber-400', 'scale-105'));
+        const activeEl = document.getElementById(`peer-card-${instanceId}`);
+        if(activeEl) activeEl.classList.add('border-amber-400', 'scale-105');
+        
+        document.getElementById('peer-selected-card-name').textContent = card.name;
+        document.getElementById('peer-card-actions').classList.remove('hidden');
+    } else {
+        const idx = arr.findIndex(c => c.instanceId === instanceId);
+        if (idx > -1) {
+            const removedCard = arr.splice(idx, 1)[0];
+            gameState.hand.push(removedCard);
+            logAction(`Took ${removedCard.name} from deck to hand.`);
+            openPeerModal(activePeerZone.uid, activePeerZone.zone);
+            renderVTT(); broadcastState();
+        }
+    }
+}
+
+function movePeerSelectedCard(targetZone) {
+    if(!selectedPeerCardId || !activePeerZone || activePeerZone.uid !== getPlayerId()) return;
+    let arr = gameState.players[getPlayerId()][activePeerZone.zone];
+    const idx = arr.findIndex(c => c.instanceId === selectedPeerCardId);
+    if(idx > -1) {
         const card = arr.splice(idx, 1)[0];
-        gameState.hand.push(card);
-        const zName = activePeerZone.zone === 'gy' ? 'Grave Yard' : activePeerZone.zone;
-        logAction(`Took ${card.name} from ${zName} to hand.`);
+        if(targetZone === 'hand') {
+            gameState.hand.push(card);
+            logAction(`Moved ${card.name} from Grave Yard to Hand.`);
+        } else if(targetZone === 'void') {
+            gameState.players[getPlayerId()].void.push(card);
+            logAction(`Moved ${card.name} from Grave Yard to Void.`);
+        }
+        selectedPeerCardId = null;
         openPeerModal(activePeerZone.uid, activePeerZone.zone);
         renderVTT(); broadcastState();
     }
@@ -1072,13 +1141,23 @@ function closePeerModal(e) {
         broadcastState();
     }
     activePeerZone = null;
+    selectedPeerCardId = null;
 }
 
 function leaveMatch() {
+    if(gameState.players[getPlayerId()] && gameState.players[getPlayerId()].spectator) {
+        alert("You Lost!");
+        window.location.reload();
+        return;
+    }
     if(gameState.phase === 'PLAYING' && currentRoomId && currentRoomId !== "SANDBOX") {
-        if(confirm("Concede match?")) processPlayerElimination();
+        if(confirm("Concede match?")) {
+            gameState.players[getPlayerId()].spectator = true;
+            processPlayerElimination();
+        }
     } else executeLeaveMatch();
 }
+
 function executeLeaveMatch() {
     if(currentRoomId && currentRoomId !== "SANDBOX" && gameState.isHost) db.collection('rooms').doc(currentRoomId).update({ status: 'CLOSED' }).catch(()=>{});
     gameState.phase = 'LOBBY'; if(roomUnsubscribe) { roomUnsubscribe(); roomUnsubscribe=null; } currentRoomId=null;
