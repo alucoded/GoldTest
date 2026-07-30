@@ -114,7 +114,6 @@
                 </div>
             </div>
 
-            <!-- DECK MANAGER TAB -->
             <div id="tab-deck" class="tab-content hidden flex-1 p-4 overflow-hidden flex flex-col max-w-7xl mx-auto w-full">
                 <div class="flex justify-between items-center mb-3 flex-shrink-0">
                     <h2 class="text-xl font-bold text-amber-400 font-serif">Deck Manager</h2>
@@ -190,7 +189,6 @@
                 </div>
             </div>
 
-            <!-- SHOP TAB -->
             <div id="tab-shop" class="tab-content hidden flex-1 p-6 overflow-y-auto w-full space-y-6 max-w-4xl mx-auto">
                 <h2 class="text-2xl font-bold text-amber-400 font-serif mb-4">Shop</h2>
                 <div id="store-items-container" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
@@ -200,7 +198,6 @@
                 </div>
             </div>
 
-            <!-- ADMIN TAB -->
             <div id="tab-admin" class="tab-content hidden flex-1 p-6 overflow-y-auto max-w-5xl mx-auto w-full space-y-4">
                 <h2 class="text-2xl font-bold text-red-500 font-serif mb-2 uppercase">Master Player List</h2>
                 <input type="text" id="admin-search" placeholder="Search by name or email..." class="w-full p-2 bg-stone-900 text-stone-100 border border-stone-700 rounded text-sm mb-4" oninput="filterAdminList()">
@@ -209,7 +206,6 @@
         </div>
     </div>
 
-    <!-- PRE-LOBBY FOR CUSTOM MATCHES -->
     <div id="pre-lobby-view" class="hidden flex-1 bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 flex flex-col justify-center items-center p-6 text-center z-40">
         <h2 class="text-3xl font-serif text-amber-400 font-bold drop-shadow-lg mb-4">CUSTOM LOBBY</h2>
         <div class="bg-stone-900/95 border border-amber-500 p-8 rounded-lg max-w-lg w-full shadow-2xl">
@@ -228,7 +224,6 @@
         <button onclick="leaveMatch()" class="bg-red-950 hover:bg-red-900 text-red-200 font-bold py-2 px-6 rounded text-xs border border-red-800 mt-4">Cancel</button>
     </div>
 
-    <!-- VITAL LOBBY -->
     <div id="vital-lobby-view" class="hidden flex-1 bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 flex flex-col justify-center items-center p-6 text-center space-y-6 z-40">
         <h2 class="text-3xl font-serif text-amber-400 font-bold drop-shadow-lg" id="lobby-title">VITAL SELECTION</h2>
         <div class="bg-stone-900/95 border border-amber-500 p-8 rounded-lg max-w-2xl w-full shadow-2xl backdrop-blur-sm">
@@ -266,15 +261,13 @@
         <button onclick="leaveMatch()" class="bg-red-950 text-red-200 py-2 px-6 rounded text-xs border mt-4">Cancel / Leave</button>
     </div>
 
-    <!-- GAME VIEW -->
     <div id="game-view" class="hidden flex-1 bg-gradient-to-b from-[#1c1917] to-[#0c0a09] flex overflow-hidden relative">
         <svg id="targeting-line-container" class="ping-line hidden"><line id="targeting-line" x1="0" y1="0" x2="0" y2="0" /></svg>
 
-        <!-- RIGHT PANEL -->
         <div class="w-72 bg-stone-950 border-r border-stone-800 flex flex-col flex-shrink-0 shadow-2xl z-20 relative">
             <div class="flex justify-between items-center p-3 border-b border-amber-600/50 bg-stone-900">
                 <span id="match-timer" class="text-stone-400 text-xs font-mono">00:00</span>
-                <button onclick="leaveMatch()" class="bg-red-950 text-red-200 text-[10px] px-2 py-1 rounded border border-red-800 hover:bg-red-900 transition">Concede</button>
+                <button id="btn-concede" onclick="leaveMatch()" class="bg-red-950 text-red-200 text-[10px] px-2 py-1 rounded border border-red-800 hover:bg-red-900 transition">Concede</button>
             </div>
             
             <div class="flex-1 flex flex-col bg-stone-950 min-h-0 border-b border-stone-800 relative">
@@ -303,53 +296,51 @@
             </div>
         </div>
 
-        <!-- MAIN BOARD -->
         <div class="flex-1 flex flex-col relative overflow-hidden" id="main-board-area">
             
-            <!-- Dynamic Opponent Area (1v1 or Multi) -->
-            <div id="opp-1v1-board" class="w-full flex items-center justify-center gap-6 p-4 opacity-80 hidden relative"></div>
-            <div id="opponents-container" class="w-full flex-1 overflow-x-auto p-4 flex gap-8 items-center justify-center opacity-80 min-h-[250px]"></div>
-
-            <div id="center-container" class="w-full flex justify-center gap-4 py-4 border-y-2 border-amber-600/20 bg-amber-600/5 shadow-2xl relative">
-                <!-- Dynamically injected center slots -->
-            </div>
-
-            <div class="w-full flex items-center justify-center gap-6 p-4">
-                <div class="flex flex-col gap-2">
-                    <div onclick="openPeerModal(getPlayerId(), 'void')" id="void-visual" class="board-slot bg-[#050505] border-2 border-purple-900/50 rounded flex items-center justify-center text-xs text-purple-800 font-bold relative p-1 cursor-pointer overflow-hidden"><span class="z-10 bg-[#050505]/80 px-2 py-1 rounded text-purple-400">VOID [0]</span></div>
-                    <div onclick="openPeerModal(getPlayerId(), 'gy')" id="gy-visual" class="board-slot bg-stone-950 border-2 border-stone-700 rounded flex items-center justify-center text-xs relative p-1 cursor-pointer overflow-hidden"><span class="z-10 bg-stone-950/80 px-2 py-1 rounded text-stone-400">GRAVE YARD [0]</span></div>
-                </div>
-                <div class="flex flex-col gap-2">
-                    <div class="flex gap-2" id="player-front-row">
-                        <div onclick="handleEmptySlotClick('front', 0)" id="playerFront-0" class="board-slot bg-stone-800/40 border border-stone-700 rounded text-xs text-stone-500 flex justify-center items-center">F1</div>
-                        <div onclick="handleEmptySlotClick('front', 1)" id="playerFront-1" class="board-slot bg-stone-800/40 border border-stone-700 rounded text-xs text-stone-500 flex justify-center items-center">F2</div>
-                        <div onclick="handleEmptySlotClick('front', 2)" id="playerFront-2" class="board-slot bg-stone-800/40 border border-stone-700 rounded text-xs text-stone-500 flex justify-center items-center">F3</div>
-                    </div>
-                    <div class="flex gap-2" id="player-back-row">
-                        <div onclick="handleEmptySlotClick('back', 0)" id="playerBack-0" class="board-slot bg-stone-800/20 border border-stone-700 rounded text-xs text-stone-500 flex justify-center items-center">B1</div>
-                        <div onclick="handleEmptySlotClick('back', 1)" id="playerBack-1" class="board-slot bg-stone-800/20 border border-stone-700 rounded text-xs text-stone-500 flex justify-center items-center">B2</div>
-                        <div onclick="handleEmptySlotClick('back', 2)" id="playerBack-2" class="board-slot bg-stone-800/20 border border-stone-700 rounded text-xs text-stone-500 flex justify-center items-center">B3</div>
-                    </div>
-                </div>
-                <div class="flex flex-col gap-2">
-                    <div class="board-slot bg-stone-950 border-2 border-amber-700 rounded flex flex-col items-center justify-center text-xs relative p-1 bg-[url('GoldBurnLogo (1).png')] bg-cover bg-center bg-blend-overlay bg-black/80">
-                        <span class="z-10 mb-2 text-[10px] text-amber-500 font-bold">DECK [<span id="deck-count-hud">0</span>]</span>
-                        <div class="flex flex-col gap-1 z-10 w-full px-1">
-                            <button onclick="drawCard()" class="bg-amber-600 text-stone-950 py-1 text-[10px] font-bold rounded">DRAW</button>
-                            <button onclick="openPeerModal(getPlayerId(), 'deck')" class="bg-stone-800 text-amber-400 py-1 text-[10px] font-bold rounded">PEER</button>
-                        </div>
-                    </div>
-                    <div class="flex justify-between items-center text-xs border border-stone-800 p-2 bg-stone-900 rounded">
-                        <span class="text-amber-400 font-bold">Gold: <span id="match-gold-val" class="text-white text-lg ml-1">0</span></span>
-                        <div class="flex gap-1"><button onclick="editMatchGold(-1)" class="bg-stone-800 px-1 text-white rounded hover:bg-stone-700">-</button><button onclick="editMatchGold(1)" class="bg-stone-800 px-1 text-white rounded hover:bg-stone-700">+</button></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- SPECTATOR TOGGLES (Hidden unless spectator) -->
-            <div id="spectator-ui" class="hidden absolute bottom-2 left-1/2 transform -translate-x-1/2 bg-stone-900/90 border border-amber-500 p-3 rounded-lg shadow-2xl z-40 flex items-center gap-4">
+            <div id="spectator-ui" class="hidden w-full bg-stone-900/90 border-b border-amber-500 p-3 shadow-2xl z-40 flex items-center justify-center gap-4">
                 <span class="text-amber-400 font-bold text-xs uppercase">Spectator Vision:</span>
                 <div id="spectator-checkboxes" class="flex gap-3 text-sm text-stone-300"></div>
+            </div>
+
+            <div id="player-active-board" class="flex-1 flex flex-col justify-between overflow-hidden relative">
+                <div id="opp-1v1-board" class="w-full flex items-center justify-center gap-6 p-4 opacity-80 hidden relative"></div>
+                <div id="opponents-container" class="w-full flex-1 overflow-x-auto p-4 flex gap-8 items-center justify-center opacity-80 min-h-[250px]"></div>
+
+                <div id="center-container" class="w-full flex justify-center gap-4 py-4 border-y-2 border-amber-600/20 bg-amber-600/5 shadow-2xl relative">
+                </div>
+
+                <div class="w-full flex items-center justify-center gap-6 p-4">
+                    <div class="flex flex-col gap-2">
+                        <div onclick="openPeerModal(getPlayerId(), 'void')" id="void-visual" class="board-slot bg-[#050505] border-2 border-purple-900/50 rounded flex flex-col items-center justify-center text-xs text-purple-800 font-bold relative p-1 cursor-pointer overflow-hidden text-center"><span class="z-10 bg-[#050505]/80 px-2 py-1 rounded text-purple-400 font-bold">VOID<br>[0]</span></div>
+                        <div onclick="openPeerModal(getPlayerId(), 'gy')" id="gy-visual" class="board-slot bg-stone-950 border-2 border-stone-700 rounded flex flex-col items-center justify-center text-xs relative p-1 cursor-pointer overflow-hidden text-center"><span class="z-10 bg-stone-950/80 px-2 py-1 rounded text-stone-400 font-bold">GRAVE YARD<br>[0]</span></div>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <div class="flex gap-2" id="player-front-row">
+                            <div onclick="handleEmptySlotClick('front', 0)" id="playerFront-0" class="board-slot bg-stone-800/40 border border-stone-700 rounded text-xs text-stone-500 flex justify-center items-center">F1</div>
+                            <div onclick="handleEmptySlotClick('front', 1)" id="playerFront-1" class="board-slot bg-stone-800/40 border border-stone-700 rounded text-xs text-stone-500 flex justify-center items-center">F2</div>
+                            <div onclick="handleEmptySlotClick('front', 2)" id="playerFront-2" class="board-slot bg-stone-800/40 border border-stone-700 rounded text-xs text-stone-500 flex justify-center items-center">F3</div>
+                        </div>
+                        <div class="flex gap-2" id="player-back-row">
+                            <div onclick="handleEmptySlotClick('back', 0)" id="playerBack-0" class="board-slot bg-stone-800/20 border border-stone-700 rounded text-xs text-stone-500 flex justify-center items-center">B1</div>
+                            <div onclick="handleEmptySlotClick('back', 1)" id="playerBack-1" class="board-slot bg-stone-800/20 border border-stone-700 rounded text-xs text-stone-500 flex justify-center items-center">B2</div>
+                            <div onclick="handleEmptySlotClick('back', 2)" id="playerBack-2" class="board-slot bg-stone-800/20 border border-stone-700 rounded text-xs text-stone-500 flex justify-center items-center">B3</div>
+                        </div>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <div class="board-slot bg-stone-950 border-2 border-amber-700 rounded flex flex-col items-center justify-center text-xs relative p-1 bg-[url('GoldBurnLogo (1).png')] bg-cover bg-center bg-blend-overlay bg-black/80">
+                            <span class="z-10 mb-2 text-[10px] text-amber-500 font-bold">DECK [<span id="deck-count-hud">0</span>]</span>
+                            <div class="flex flex-col gap-1 z-10 w-full px-1">
+                                <button onclick="drawCard()" class="bg-amber-600 text-stone-950 py-1 text-[10px] font-bold rounded">DRAW</button>
+                                <button onclick="openPeerModal(getPlayerId(), 'deck')" class="bg-stone-800 text-amber-400 py-1 text-[10px] font-bold rounded">PEER</button>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center text-xs border border-stone-800 p-2 bg-stone-900 rounded">
+                            <span class="text-amber-400 font-bold">Gold: <span id="match-gold-val" class="text-white text-lg ml-1">0</span></span>
+                            <div class="flex gap-1"><button onclick="editMatchGold(-1)" class="bg-stone-800 px-1 text-white rounded hover:bg-stone-700">-</button><button onclick="editMatchGold(1)" class="bg-stone-800 px-1 text-white rounded hover:bg-stone-700">+</button></div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="h-44 bg-stone-950 border-t-4 border-stone-800 p-4 flex justify-center gap-3 overflow-x-auto z-10" id="player-hand-container"></div>
@@ -390,11 +381,17 @@
         </div>
     </div>
 
-    <!-- MODALS -->
     <div id="peer-modal" class="hidden absolute inset-0 bg-black/95 z-50 flex flex-col p-10 backdrop-blur-sm" onclick="closePeerModal(event)">
-        <div class="flex justify-between items-center mb-6 border-b border-stone-800 pb-4">
+        <div class="flex justify-between items-center mb-4 border-b border-stone-800 pb-4">
             <h2 id="peer-modal-title" class="text-3xl text-amber-400 font-bold font-serif uppercase tracking-widest">Zone</h2>
             <button id="close-peer-btn" onclick="closePeerModal(event)" class="text-red-400 hover:text-red-300 font-bold text-2xl transition">Close [X]</button>
+        </div>
+        <div id="peer-card-actions" class="hidden bg-stone-900 border border-amber-500/50 p-3 rounded mb-4 flex items-center justify-between gap-4">
+            <span id="peer-selected-card-name" class="text-amber-400 font-bold text-sm">Selected Card</span>
+            <div class="flex gap-2">
+                <button id="btn-peer-to-hand" onclick="movePeerSelectedCard('hand')" class="bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold px-3 py-1 rounded text-xs">To Hand</button>
+                <button id="btn-peer-to-void" onclick="movePeerSelectedCard('void')" class="bg-purple-900 hover:bg-purple-800 text-purple-100 font-bold px-3 py-1 rounded text-xs border border-purple-700">To Void</button>
+            </div>
         </div>
         <div id="peer-grid" class="flex-1 overflow-y-auto grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-4"></div>
     </div>
