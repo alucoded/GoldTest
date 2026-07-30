@@ -1215,13 +1215,28 @@ function saveLocalDeck() {
 }
 
 function isCardOwned(card) {
-    if(card.id === 'DW_thebanditcaptain' && (!playerState.uid || playerState.unlockedCards.includes('Bandits Arrival Starter'))) return true;
-    if(!playerState.uid) return card.set && card.set.includes('Bandits Arrival');
-    if(playerState.unlockedCards.includes(card.id)) return true;
-    if(card.set && card.set.includes('Bandits') && playerState.unlockedCards.includes('Bandits Arrival Starter')) return true;
-    if(card.set && card.set.includes('Devout') && playerState.unlockedCards.includes('Devout Patronage Starter')) return true;
-    if(card.set && card.set.includes('Dread') && playerState.unlockedCards.includes('Dread Guild Starter')) return true;
-    if(card.set && card.set.includes('Aurum') && playerState.unlockedCards.includes('Aurum Patronage Starter')) return true;
+    if (!playerState.uid) {
+        return card.id.startsWith('SDBA_') || card.id === 'DW_thebanditcaptain' || (card.set && card.set.includes('Bandits Arrival'));
+    }
+    if (playerState.unlockedCards.includes(card.id)) return true;
+
+    for (let unlockedItem of playerState.unlockedCards) {
+        if (card.set && card.set.includes(unlockedItem)) return true;
+        if (unlockedItem === "Bandits Arrival Starter" && (card.id.startsWith('SDBA_') || card.id === 'DW_thebanditcaptain' || (card.set && card.set.includes('Bandits')))) return true;
+        if (unlockedItem === "Devout Patronage Starter" && (card.id.startsWith('SDDP_') || (card.set && card.set.includes('Devout')))) return true;
+        if (unlockedItem === "Aurum Guild Starter" && (card.id.startsWith('SDAG_') || (card.set && card.set.includes('Aurum')))) return true;
+        if (unlockedItem === "Dread Apocalypse Starter" && (card.id.startsWith('SDDA_') || (card.set && card.set.includes('Dread')))) return true;
+        if (unlockedItem === "Season 0 Card List" && card.id.startsWith('S0CL_')) return true;
+        if (unlockedItem === "Season 1 Card List" && card.id.startsWith('S1CL_')) return true;
+        if (unlockedItem === "Season 2 Card List" && card.id.startsWith('S2CL_')) return true;
+        if (unlockedItem === "Dead Of Winter" && card.id.startsWith('DOW_')) return true;
+        if (unlockedItem === "Power Escalation" && card.id.startsWith('PE_')) return true;
+        if (unlockedItem === "The Vox Populi" && card.id.startsWith('TVP_')) return true;
+        if (unlockedItem === "Blood Money" && card.id.startsWith('BM_')) return true;
+        if (unlockedItem === "Crimson Onslaught" && card.id.startsWith('CO_')) return true;
+        if (unlockedItem === "Dice World" && card.id.startsWith('DW_')) return true;
+        if (unlockedItem === "All Stars" && card.id.startsWith('AS_')) return true;
+    }
     return false;
 }
 
@@ -1269,7 +1284,28 @@ function filterCollection() {
             if (cost === '>3' && cc <= 3) return false;
             if (cost === 'special' && card.type !== 'Zone' && card.type !== 'Act') return false;
         }
-        if (setFilter !== 'all' && (!card.set || !card.set.includes(setFilter))) return false;
+        
+        if (setFilter !== 'all') {
+            let matchSet = false;
+            if (card.set && card.set.includes(setFilter)) matchSet = true;
+            if (setFilter === 'Bandits Arrival' && (card.id.startsWith('SDBA_') || card.id === 'DW_thebanditcaptain')) matchSet = true;
+            if (setFilter === 'Devout Patronage' && card.id.startsWith('SDDP_')) matchSet = true;
+            if (setFilter === 'Dread Apocalypse' && card.id.startsWith('SDDA_')) matchSet = true;
+            if (setFilter === 'Aurum Guild' && card.id.startsWith('SDAG_')) matchSet = true;
+            if (setFilter === 'Season 0' && card.id.startsWith('S0CL_')) matchSet = true;
+            if (setFilter === 'Season 1' && card.id.startsWith('S1CL_')) matchSet = true;
+            if (setFilter === 'Season 2' && card.id.startsWith('S2CL_')) matchSet = true;
+            if (setFilter === 'Dead Of Winter' && card.id.startsWith('DOW_')) matchSet = true;
+            if (setFilter === 'Power Escalation' && card.id.startsWith('PE_')) matchSet = true;
+            if (setFilter === 'The Vox Populi' && card.id.startsWith('TVP_')) matchSet = true;
+            if (setFilter === 'Blood Money' && card.id.startsWith('BM_')) matchSet = true;
+            if (setFilter === 'Crimson Onslaught' && card.id.startsWith('CO_')) matchSet = true;
+            if (setFilter === 'Dice World' && card.id.startsWith('DW_')) matchSet = true;
+            if (setFilter === 'All Stars' && card.id.startsWith('AS_')) matchSet = true;
+
+            if (!matchSet) return false;
+        }
+
         if (speed !== 'all' && (!card.subtypes || !card.subtypes.includes(speed))) return false;
         if (selectedFilterTypes.size > 0) {
             const matchT = selectedFilterTypes.has(card.type);
