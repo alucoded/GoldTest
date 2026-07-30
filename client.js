@@ -14,8 +14,9 @@ const db = firebase.firestore();
 const RANKS = ["Copper", "Iron", "Silver", "Emerald", "GOLDEN", "BURNING", "GOOBIS"];
 
 let playerState = { 
-    uid: null, email: null, displayName: "Guest Player", photoURL: "GoldBurnLogo (1).png", accountGold: 0, isAdmin: false, rank: "Copper",
+    uid: null, email: null, displayName: "Guest Player", photoURL: "GoldBurnLogo (1).png", accountGold: 0, isAdmin: false, rank: "Copper", xp: 0,
     unlockedCards: ['Bandits Arrival Starter'], customDecks: {}, activeDeckName: "Custom Deck", currentDeck: {}, currentVital: null,
+    matchHistory: [],
     tempSessionId: "guest_" + Math.random().toString(36).substr(2, 9)
 };
 
@@ -59,6 +60,7 @@ const STORE_ITEMS = [
 // --- AUTH & SETUP ---
 auth.onAuthStateChanged(async (user) => {
     loadLocalDeck();
+    loadLocalHistory();
     if (user) {
         playerState.uid = user.uid; playerState.email = user.email;
         playerState.displayName = user.displayName; 
@@ -72,22 +74,24 @@ auth.onAuthStateChanged(async (user) => {
             const userRef = db.collection('players').doc(user.uid);
             const doc = await userRef.get();
             if(!doc.exists) {
-                const newProfile = { email: user.email, displayName: user.displayName, photoURL: playerState.photoURL, accountGold: 0, unlockedCards: ['Bandits Arrival Starter'], isAdmin: false, rank: "Copper" };
+                const newProfile = { email: user.email, displayName: user.displayName, photoURL: playerState.photoURL, accountGold: 0, unlockedCards: ['Bandits Arrival Starter'], isAdmin: false, rank: "Copper", xp: 0, matchHistory: [] };
                 await userRef.set(newProfile, { merge: true });
-                playerState.accountGold = 0; playerState.unlockedCards = ['Bandits Arrival Starter']; playerState.isAdmin = false; playerState.rank = "Copper";
+                playerState.accountGold = 0; playerState.unlockedCards = ['Bandits Arrival Starter']; playerState.isAdmin = false; playerState.rank = "Copper"; playerState.xp = 0; playerState.matchHistory = [];
             } else {
                 const data = doc.data();
                 playerState.accountGold = data.accountGold !== undefined ? data.accountGold : 0;
                 playerState.unlockedCards = data.unlockedCards || ['Bandits Arrival Starter'];
                 playerState.isAdmin = data.isAdmin || false;
                 playerState.rank = data.rank || "Copper";
+                playerState.xp = data.xp || 0;
+                playerState.matchHistory = data.matchHistory || [];
             }
             if(playerState.isAdmin) document.getElementById('btn-admin').classList.remove('hidden');
             updateUI(); filterCollection(); renderStoreAndInventory();
         } catch (error) { console.error("Firestore Error: ", error); }
     } else {
         playerState.unlockedCards = ['Bandits Arrival Starter'];
-        filterCollection(); renderStoreAndInventory(); renderDeckList();
+        updateUI(); filterCollection(); renderStoreAndInventory(); renderDeckList();
     }
 });
 
@@ -178,7 +182,7 @@ async function adminRemoveItem(uid) {
 // --- MATCHMAKING & PRE-LOBBY ---
 let activeQueueUnsub = null;
 async function queueMatch(mode) {
-    if(!playerState.uid) return alert("Guests can only play Custom matches!");
+    if(!playerState.uid && mode !== 'custom' && mode !== 'quickplay') return alert("Guests can only play Custom and Quickplay matches!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Deck Manager first!");
     
     const btn = document.getElementById(`btn-${mode}`);
@@ -244,7 +248,7 @@ async function handleCustomMatch() {
 }
 
 async function hostMatch(mode) {
-    if(!playerState.uid && mode !== 'custom') return alert("Guests can only play Custom matches!");
+    if(!playerState.uid && mode !== 'custom' && mode !== 'quickplay') return alert("Guests can only play Custom and Quickplay matches!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Deck Manager first!");
     
     const roomCode = mode === 'custom' ? Math.floor(1000 + Math.random()*9000).toString() : null;
@@ -277,7 +281,7 @@ async function hostMatch(mode) {
 }
 
 async function joinMatch(mode, code = null, directRoomId = null) {
-    if(!playerState.uid && mode !== 'custom') return alert("Guests can only play Custom matches!");
+    if(!playerState.uid && mode !== 'custom' && mode !== 'quickplay') return alert("Guests can only play Custom and Quickplay matches!");
     if(mode !== 'starters' && !playerState.currentVital) return alert("Equip a Vital card in Deck Manager first!");
     
     let roomDoc = null;
@@ -478,6 +482,55 @@ function enterMatch() {
     startMatchTimer(); renderVTT(); broadcastState();
 }
 
+function saveMatchHistory(roomData) {
+    if (!roomData) return;
+    const isWinner = roomData.winnerUid === getPlayerId();
+    let oppName = "Unknown";
+    let oppDeckIds = [];
+    
+    for (const [uid, p] of Object.entries(roomData.players)) {
+        if (uid !== getPlayerId() && !p.spectator) {
+            oppName = p.name;
+            oppDeckIds = (p.deckCache || []).map(c => c.id);
+            break;
+        }
+    }
+    
+    const entry = {
+        id: Date.now(),
+        date: new Date().toLocaleDateString(),
+        oppName: oppName,
+        result: isWinner ? "Victory" : "Defeat",
+        mode: roomData.mode,
+        oppDeck: oppDeckIds
+    };
+    
+    playerState.matchHistory = playerState.matchHistory || [];
+    playerState.matchHistory.unshift(entry);
+    if(playerState.matchHistory.length > 20) playerState.matchHistory.pop();
+    
+    if (playerState.uid) {
+        let updates = { matchHistory: playerState.matchHistory };
+        if (isWinner && (roomData.mode === 'quickplay' || roomData.mode === 'ranked')) {
+            playerState.accountGold += 3;
+            playerState.xp = (playerState.xp || 0) + 25;
+            if (playerState.xp >= 100) {
+                playerState.xp = 0;
+                let rIdx = RANKS.indexOf(playerState.rank);
+                if (rIdx < RANKS.length - 1) {
+                    playerState.rank = RANKS[rIdx + 1];
+                }
+            }
+            updates.accountGold = playerState.accountGold;
+            updates.xp = playerState.xp;
+            updates.rank = playerState.rank;
+        }
+        db.collection('players').doc(playerState.uid).update(updates).then(() => updateUI());
+    } else {
+        localStorage.setItem('gb_history', JSON.stringify(playerState.matchHistory));
+    }
+}
+
 // --- SYNC & LISTENER ---
 function listenToRoom() {
     if(roomUnsubscribe) roomUnsubscribe();
@@ -559,11 +612,9 @@ function listenToRoom() {
         }
 
         if(data.status === 'FINISHED' && gameState.phase === 'PLAYING') {
+            saveMatchHistory(data);
             if(data.winnerUid === getPlayerId() && playerState.uid && (data.mode==='quickplay'||data.mode==='starters')) {
-                alert("WINNER! You earned 3 Gold.");
-                playerState.accountGold += 3;
-                db.collection('players').doc(playerState.uid).update({ accountGold: playerState.accountGold });
-                updateUI();
+                alert("WINNER! You earned 3 Gold and 25 XP.");
             } else if (data.winnerUid === getPlayerId()) alert("WINNER!");
             else alert("DEFEATED! Winner was decided.");
             executeLeaveMatch();
@@ -641,7 +692,7 @@ function renderVTT() {
                 p.handCache.forEach(card => {
                     const div = document.createElement('div');
                     div.className = `w-[110px] h-[155px] flex-shrink-0 rounded-md overflow-hidden border-2 border-amber-500/50 shadow-lg relative`;
-                    div.innerHTML = `<img src="${card.image}" class="card-img-full bg-stone-900 p-1" onerror="this.src='GoldBurnLogo (1).png'"><div class="absolute bottom-0 w-full bg-black/80 text-[9px] text-amber-400 font-bold text-center truncate px-1">${p.name}</div>`;
+                    div.innerHTML = `<img src="${card.image || 'GoldBurnLogo (1).png'}" class="card-img-full bg-stone-900 p-1" onerror="this.src='GoldBurnLogo (1).png'"><div class="absolute bottom-0 w-full bg-black/80 text-[9px] text-amber-400 font-bold text-center truncate px-1">${p.name}</div>`;
                     handEl.appendChild(div);
                 });
             }
@@ -660,7 +711,7 @@ function renderVTT() {
         gameState.hand.forEach((card, idx) => {
             const div = document.createElement('div');
             div.className = `w-[110px] h-[155px] flex-shrink-0 cursor-pointer rounded-md overflow-hidden border-2 transition ${selectedHandIndex === idx ? 'border-amber-400 scale-105 z-20' : 'border-stone-800'}`;
-            div.innerHTML = `<img src="${card.image}" class="card-img-full bg-stone-900 p-1" onerror="this.src='GoldBurnLogo (1).png'">`;
+            div.innerHTML = `<img src="${card.image || 'GoldBurnLogo (1).png'}" class="card-img-full bg-stone-900 p-1" onerror="this.src='GoldBurnLogo (1).png'">`;
             div.onclick = (e) => {
                 e.stopPropagation();
                 
@@ -792,7 +843,7 @@ function renderVTT() {
         const el = document.getElementById(`${z}-visual`); if(!el) return;
         const arr = myP[z] || [];
         const label = z === 'gy' ? 'GRAVE YARD' : 'VOID';
-        el.innerHTML = arr.length > 0 ? `<img src="${arr[arr.length-1].image}" class="absolute inset-0 w-full h-full object-cover opacity-60" onerror="this.src='GoldBurnLogo (1).png'"><span class="z-10 bg-black/80 px-2 rounded font-bold text-center">${label}<br>[${arr.length}]</span>` : `<span class="z-10 bg-black/80 px-2 rounded font-bold text-center">${label}<br>[0]</span>`;
+        el.innerHTML = arr.length > 0 ? `<img src="${arr[arr.length-1].image || 'GoldBurnLogo (1).png'}" class="absolute inset-0 w-full h-full object-cover opacity-60" onerror="this.src='GoldBurnLogo (1).png'"><span class="z-10 bg-black/80 px-2 rounded font-bold text-center">${label}<br>[${arr.length}]</span>` : `<span class="z-10 bg-black/80 px-2 rounded font-bold text-center">${label}<br>[0]</span>`;
     });
 }
 
@@ -803,7 +854,7 @@ function renderSlotHtml(card, uid, region, idx, isOpp, isCenter=false, htmlIdPre
         const dbRegion = isCenter ? 'center' : region;
         const sel = activeInsSlot && activeInsSlot.region === dbRegion && activeInsSlot.index === idx && activeInsSlot.uid === uid;
         return `<div id="${sId}" onclick="event.stopPropagation(); inspectFromBoard('${uid}','${dbRegion}',${idx},${isOpp})" class="board-slot bg-stone-900 border-2 ${sel?'border-amber-400 scale-[1.02] shadow-xl z-10':(isOpp?'border-red-900/50':'border-amber-600/50')} rounded overflow-hidden cursor-pointer">
-            <img src="${card.image}" class="card-img-full bg-black ${card.exhausted?'opacity-50':''}" onerror="this.src='GoldBurnLogo (1).png'">
+            <img src="${card.image || 'GoldBurnLogo (1).png'}" class="card-img-full bg-black ${card.exhausted?'opacity-50':''}" onerror="this.src='GoldBurnLogo (1).png'">
             ${card.exhausted ? `<div class="zzz-overlay bg-black/80 px-1 rounded text-[10px]">USED</div>` : ''}
             ${card.currentHp!==undefined ? `<div class="hp-badge">${card.currentHp}</div>` : ''}
             <div class="marker-container">${mh}</div>
@@ -1107,7 +1158,7 @@ function openPeerModal(uid, zone) {
     
     arr.forEach(c => {
         g.innerHTML += `<div class="peer-card-item bg-stone-900 border-2 border-stone-700 rounded p-1 cursor-pointer hover:border-amber-500 transition" id="peer-card-${c.instanceId}" onclick="handlePeerCardClick('${c.instanceId}')">
-            <img src="${c.image}" class="w-full h-auto object-contain" onerror="this.src='GoldBurnLogo (1).png'">
+            <img src="${c.image || 'GoldBurnLogo (1).png'}" class="w-full h-auto object-contain" onerror="this.src='GoldBurnLogo (1).png'">
         </div>`;
     });
     m.classList.remove('hidden');
@@ -1198,7 +1249,7 @@ function executeLeaveMatch() {
 
     hideAllViews();
     document.getElementById('lobby-view').classList.remove('hidden');
-    switchTab('play'); loadLocalDeck();
+    switchTab('play'); loadLocalDeck(); renderHistory(); loadLeaderboard();
 }
 
 // --- DECK MANAGER ---
@@ -1208,24 +1259,30 @@ function loadLocalDeck() {
     playerState.currentVital = localStorage.getItem('gb_currentVital') || null;
     playerState.activeDeckName = localStorage.getItem('gb_activeDeckName') || "Custom Deck";
 }
+
 function saveLocalDeck() {
     localStorage.setItem('gb_currentDeck', JSON.stringify(playerState.currentDeck));
     localStorage.setItem('gb_currentVital', playerState.currentVital || '');
     localStorage.setItem('gb_activeDeckName', playerState.activeDeckName);
 }
 
-function isCardOwned(card) {
-    if (!playerState.uid) {
-        return card.id.startsWith('SDBA_') || card.id === 'DW_thebanditcaptain' || (card.set && card.set.includes('Bandits Arrival'));
-    }
-    if (playerState.unlockedCards.includes(card.id)) return true;
+function loadLocalHistory() {
+    const hist = localStorage.getItem('gb_history');
+    if(hist) playerState.matchHistory = JSON.parse(hist);
+}
 
-    for (let unlockedItem of playerState.unlockedCards) {
+function isCardOwned(card) {
+    let unlocked = playerState.unlockedCards || [];
+    if (unlocked.length === 0) unlocked = ['Bandits Arrival Starter'];
+
+    for (let unlockedItem of unlocked) {
         if (card.set && card.set.includes(unlockedItem)) return true;
+        
         if (unlockedItem === "Bandits Arrival Starter" && (card.id.startsWith('SDBA_') || card.id === 'DW_thebanditcaptain' || (card.set && card.set.includes('Bandits')))) return true;
         if (unlockedItem === "Devout Patronage Starter" && (card.id.startsWith('SDDP_') || (card.set && card.set.includes('Devout')))) return true;
         if (unlockedItem === "Aurum Guild Starter" && (card.id.startsWith('SDAG_') || (card.set && card.set.includes('Aurum')))) return true;
         if (unlockedItem === "Dread Apocalypse Starter" && (card.id.startsWith('SDDA_') || (card.set && card.set.includes('Dread')))) return true;
+        
         if (unlockedItem === "Season 0 Card List" && card.id.startsWith('S0CL_')) return true;
         if (unlockedItem === "Season 1 Card List" && card.id.startsWith('S1CL_')) return true;
         if (unlockedItem === "Season 2 Card List" && card.id.startsWith('S2CL_')) return true;
@@ -1243,12 +1300,58 @@ function isCardOwned(card) {
 function toggleSubtypeDropdown() { document.getElementById('subtype-dropdown-panel').classList.toggle('hidden'); }
 
 let selectedFilterTypes = new Set();
+let currentCostFilter = '';
+
+function setCostFilter(val) {
+    currentCostFilter = val;
+    if(val === 'X' || val === '') document.getElementById('filter-cost-num').value = '';
+    filterCollection();
+}
+
+function updateSetDropdown() {
+    const select = document.getElementById('filter-set');
+    if (!select) return;
+    const currentVal = select.value;
+    select.innerHTML = '<option value="all">All Available Sets</option>';
+    
+    let unlocked = playerState.unlockedCards || ['Bandits Arrival Starter'];
+    if(unlocked.length === 0) unlocked = ['Bandits Arrival Starter'];
+    
+    const setMap = {
+        "Bandits Arrival Starter": { val: "Bandits Arrival", text: "Bandits Arrival Starter" },
+        "Devout Patronage Starter": { val: "Devout Patronage", text: "Devout Patronage Starter" },
+        "Dread Apocalypse Starter": { val: "Dread Apocalypse", text: "Dread Apocalypse Starter" },
+        "Aurum Guild Starter": { val: "Aurum Guild", text: "Aurum Guild Starter" },
+        "Season 0 Card List": { val: "Season 0", text: "Season 0 Card List" },
+        "Season 1 Card List": { val: "Season 1", text: "Season 1 Card List" },
+        "Season 2 Card List": { val: "Season 2", text: "Season 2 Card List" },
+        "Dead Of Winter": { val: "Dead Of Winter", text: "Dead Of Winter" },
+        "Power Escalation": { val: "Power Escalation", text: "Power Escalation" },
+        "The Vox Populi": { val: "The Vox Populi", text: "The Vox Populi" },
+        "Blood Money": { val: "Blood Money", text: "Blood Money" },
+        "Crimson Onslaught": { val: "Crimson Onslaught", text: "Crimson Onslaught" },
+        "Dice World": { val: "Dice World", text: "Dice World" },
+        "All Stars": { val: "All Stars", text: "All Stars" }
+    };
+
+    unlocked.forEach(item => {
+        if (setMap[item]) {
+            select.innerHTML += `<option value="${setMap[item].val}">${setMap[item].text}</option>`;
+        }
+    });
+    
+    select.value = currentVal || 'all';
+}
+
 function filterCollection() {
     const nameEl = document.getElementById('card-search-name');
     if(!nameEl) return;
     const qName = nameEl.value.toLowerCase();
     const qDesc = document.getElementById('card-search-desc').value.toLowerCase();
-    const cost = document.getElementById('filter-cost').value;
+    
+    const costInput = document.getElementById('filter-cost-num').value;
+    if (costInput !== '') currentCostFilter = costInput;
+    
     const setFilter = document.getElementById('filter-set').value;
     const speed = document.getElementById('filter-speed').value;
     const sort = document.getElementById('sort-by').value;
@@ -1277,12 +1380,13 @@ function filterCollection() {
         if (!isCardOwned(card)) return false;
         if (qName && !card.name.toLowerCase().includes(qName)) return false;
         if (qDesc && (!card.description || !card.description.toLowerCase().includes(qDesc))) return false;
-        if (cost !== 'all') {
-            const cc = card.cost || 0;
-            if (cost === '<3' && cc >= 3) return false;
-            if (cost === '3' && cc !== 3) return false;
-            if (cost === '>3' && cc <= 3) return false;
-            if (cost === 'special' && card.type !== 'Zone' && card.type !== 'Act') return false;
+        
+        if (currentCostFilter !== '') {
+            if (currentCostFilter === 'X' || currentCostFilter === 'x') {
+                if (card.cost !== 'X' && card.cost !== 'x') return false;
+            } else {
+                if (parseInt(card.cost) !== parseInt(currentCostFilter)) return false;
+            }
         }
         
         if (setFilter !== 'all') {
@@ -1331,7 +1435,7 @@ function filterCollection() {
                 <button onclick="showCardDetails('${card.id}')" class="bg-stone-800 text-stone-300 hover:text-amber-400 px-1.5 py-0.5 rounded text-[10px] ml-1 shadow font-bold border border-stone-700">[ i ]</button>
             </div>
             <div class="flex-1 overflow-hidden bg-stone-900 rounded flex items-center justify-center p-1 border border-stone-800 cursor-pointer" onclick="addCardToDeck('${card.id}')">
-                <img src="${card.image}" class="h-full w-full object-contain" onerror="this.src='GoldBurnLogo (1).png'">
+                <img src="${card.image || 'GoldBurnLogo (1).png'}" class="h-full w-full object-contain" onerror="this.src='GoldBurnLogo (1).png'">
             </div>
             <div class="text-[10px] text-stone-500 my-1">${card.type} | Cost: ${card.cost||0}</div>
             <button onclick="addCardToDeck('${card.id}')" class="bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold py-1.5 rounded transition shadow">Add to Deck</button>`;
@@ -1472,7 +1576,7 @@ function buyStoreItem(key, cost) {
                 accountGold: playerState.accountGold, unlockedCards: playerState.unlockedCards 
             });
         }
-        updateUI(); filterCollection(); renderStoreAndInventory();
+        updateUI(); updateSetDropdown(); filterCollection(); renderStoreAndInventory();
     } else { alert("Not enough account gold!"); }
 }
 
@@ -1500,11 +1604,122 @@ function renderStoreAndInventory() {
     });
 }
 
+// --- HISTORY & LEADERBOARD ---
+function renderHistory() {
+    const list = document.getElementById('history-list');
+    if(!list) return;
+    list.innerHTML = '';
+    const history = playerState.matchHistory || [];
+    if(history.length === 0) {
+        list.innerHTML = '<p class="text-stone-500 text-xs">No match history available.</p>';
+        return;
+    }
+    history.forEach(h => {
+        list.innerHTML += `
+            <div class="bg-stone-900 border ${h.result === 'Victory' ? 'border-amber-500/50' : 'border-red-900/50'} p-3 rounded flex justify-between items-center shadow">
+                <div>
+                    <div class="font-bold ${h.result === 'Victory' ? 'text-amber-400' : 'text-red-400'}">${h.result} vs ${h.oppName}</div>
+                    <div class="text-[10px] text-stone-500">${h.mode.toUpperCase()} - ${h.date}</div>
+                </div>
+                <button onclick="viewOpponentDeck(${h.id})" class="bg-stone-800 hover:bg-stone-700 text-stone-200 px-3 py-1.5 rounded text-xs font-bold border border-stone-600 transition shadow">View Opponent's Deck</button>
+            </div>
+        `;
+    });
+}
+
+function viewOpponentDeck(id) {
+    const hist = (playerState.matchHistory || []).find(h => h.id === id);
+    if(!hist || !hist.oppDeck) return alert("Deck data not available.");
+    const m = document.getElementById('peer-modal');
+    const g = document.getElementById('peer-grid');
+    document.getElementById('peer-modal-title').textContent = `${hist.oppName}'s Deck`;
+    document.getElementById('peer-card-actions').classList.add('hidden');
+    g.innerHTML = '';
+    
+    let cards = hist.oppDeck.map(cid => MASTER_CARDS.find(c => c.id === cid)).filter(Boolean);
+    cards.sort((a,b) => a.name.localeCompare(b.name));
+    
+    cards.forEach(c => {
+        g.innerHTML += `<div class="bg-stone-900 border-2 border-stone-700 rounded p-1">
+            <img src="${c.image || 'GoldBurnLogo (1).png'}" class="w-full h-auto object-contain" onerror="this.src='GoldBurnLogo (1).png'">
+        </div>`;
+    });
+    m.classList.remove('hidden');
+}
+
+async function loadLeaderboard() {
+    const list = document.getElementById('leaderboard-list');
+    const userPlacement = document.getElementById('leaderboard-user-placement');
+    if(!list) return;
+    list.innerHTML = '<p class="text-stone-500 text-xs">Loading leaderboard...</p>';
+    userPlacement.innerHTML = '';
+    
+    try {
+        const snap = await db.collection('players').get();
+        let players = [];
+        snap.forEach(d => {
+            let data = d.data();
+            players.push({
+                uid: d.id,
+                name: data.displayName || "Unknown",
+                rank: data.rank || "Copper",
+                xp: data.xp || 0,
+                rankIndex: RANKS.indexOf(data.rank || "Copper")
+            });
+        });
+        
+        players.sort((a,b) => {
+            if(b.rankIndex !== a.rankIndex) return b.rankIndex - a.rankIndex;
+            return b.xp - a.xp;
+        });
+        
+        list.innerHTML = '';
+        players.slice(0, 10).forEach((p, idx) => {
+            const isMe = p.uid === playerState.uid;
+            list.innerHTML += `
+                <div class="bg-stone-900 border ${isMe ? 'border-amber-500' : 'border-stone-800'} p-3 rounded flex items-center shadow">
+                    <div class="text-xl font-bold text-stone-600 w-8">#${idx + 1}</div>
+                    <div class="flex-1">
+                        <div class="font-bold text-stone-200">${p.name}</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-amber-400 font-bold">${p.rank}</div>
+                        <div class="text-[10px] text-stone-500">${p.xp} / 100 XP</div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        if (playerState.uid) {
+            const myIndex = players.findIndex(p => p.uid === playerState.uid);
+            if (myIndex !== -1) {
+                const myP = players[myIndex];
+                userPlacement.innerHTML = `
+                    <div class="bg-stone-950 border border-amber-600 p-3 rounded flex items-center shadow mt-4">
+                        <div class="text-xl font-bold text-amber-600 w-12 text-center">#${myIndex + 1}</div>
+                        <div class="flex-1 ml-4">
+                            <div class="font-bold text-amber-400">You (${myP.name})</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-amber-400 font-bold">${myP.rank}</div>
+                            <div class="text-[10px] text-stone-500">${myP.xp} / 100 XP</div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+    } catch (e) {
+        list.innerHTML = '<p class="text-red-500 text-xs">Error loading leaderboard.</p>';
+    }
+}
+
 function updateUI() { 
     const el = document.getElementById('account-gold-display');
     if(el) el.textContent = playerState.accountGold; 
     const rankEl = document.getElementById('profile-rank');
     if(rankEl) rankEl.textContent = playerState.rank;
+    const xpEl = document.getElementById('profile-xp');
+    if(xpEl) xpEl.textContent = playerState.xp || 0;
 }
 function testDeckInSandbox(){ currentRoomId="SANDBOX"; showVitalLobby('sandbox'); }
-window.onload = () => { loadLocalDeck(); updateUI(); filterCollection(); renderDeckList(); renderStoreAndInventory(); };
+window.onload = () => { loadLocalDeck(); loadLocalHistory(); updateUI(); updateSetDropdown(); filterCollection(); renderDeckList(); renderStoreAndInventory(); };
